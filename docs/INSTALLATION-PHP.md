@@ -50,6 +50,8 @@ Sur un serveur Nginx, réserve l’accès Web aux ressources du dossier `cdi/` e
 
 ## Dépannage
 
+Pour restaurer un fichier JSON volumineux, autorise des requêtes d’au moins 15 Mo sur PHP et sur le reverse proxy. Sur un hébergement classique, un `post_max_size` de `16M` couvre la limite de sauvegarde du CDI.
+
 | Symptôme | À vérifier |
 | --- | --- |
 | La clé n’apparaît pas | Charge la page de gestion une première fois, puis regarde dans `CDI_DATA_DIR` et vérifie le droit d’écriture. |
