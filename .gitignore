@@ -21,3 +21,7 @@ Archive-CDI-*.csv
 node_modules/
 *.log
 .DS_Store
+
+# Déploiement PHP et archives
+/php/config.local.php
+/dist/

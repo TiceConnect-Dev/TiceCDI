@@ -1,0 +1,19 @@
+services:
+  cdi:
+    image: ghcr.io/xeros59/gestion-cdi:${CDI_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${CDI_BIND_IP:-127.0.0.1}:${CDI_PORT:-8080}:8080"
+    environment:
+      CDI_ORIGIN: "${CDI_ORIGIN:-}"
+    volumes:
+      - cdi_data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  cdi_data:

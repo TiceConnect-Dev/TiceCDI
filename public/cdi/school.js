@@ -1,4 +1,4 @@
-import { api, day, e, fullName, icon, notice, time } from "./shared.js";
+import { api, day, e, fullName, icon, notice, time, urlFor } from "./shared.js";
 import { button, saveFile, timeLabel } from "./schedule.js";
 
 const $=(q,root=document)=>root.querySelector(q);
@@ -19,7 +19,7 @@ function csv(name, rows) {
 }
 
 export async function startCall(classes,dialogForm,options={}) {
-  if (options.attendance_id) {location.assign("/gestion/seances?fiche="+encodeURIComponent(options.attendance_id));return;}
+  if (options.attendance_id) {location.assign(urlFor("/gestion/seances?fiche="+encodeURIComponent(options.attendance_id)));return;}
   const groups=(await gestion("groupes")).rows.filter(group=>group.active);
   const selected=options.roster_id ?? "";
   const selectedKind=options.kind ?? "classe";
@@ -49,7 +49,7 @@ export async function startCall(classes,dialogForm,options={}) {
         kind,roster_id:id,plan_id:slot??null,request_id:requestId,
         title:form.elements.title?.value,duration:Number(form.elements.duration.value),student_ids:new FormData(form).getAll("student_ids"),
       });
-      location.assign("/gestion/seances?fiche="+encodeURIComponent(result.session.id));
+      location.assign(urlFor("/gestion/seances?fiche="+encodeURIComponent(result.session.id)));
       return "Fiche d’appel ouverte.";
     },{
       ready:form=>{
@@ -95,7 +95,7 @@ export async function renderSessions(target,context) {
     const [data,classes]=await Promise.all([gestion("seances"),gestion("classes")]);
     target.innerHTML=section("Fiches d’appel","Retrouve les séances, leurs effectifs et les départs groupés.",button("Nouvelle fiche d’appel","plus",'id="new-call"',"primary"))+
       `<section class="panel table-panel">${data.rows.length?table(["Séance","Début","Appel","Au CDI","État"],data.rows.map(row=>`<tr>
-        <td><a href="${address}?fiche=${e(row.id)}"><strong>${e(row.title)}</strong></a><small>${e(row.roster_name)}</small></td>
+        <td><a href="${urlFor(address+"?fiche="+encodeURIComponent(row.id))}"><strong>${e(row.title)}</strong></a><small>${e(row.roster_name)}</small></td>
         <td>${dateTime(row.started_at)}</td><td>${plural(row.present,"présent")} · ${plural(row.absent,"absent")}${row.waiting?" · "+plural(row.waiting,"en attente","en attente"):""}</td>
         <td>${row.active}</td><td>${row.ended_at?pill("Terminée"):pill("En cours","green")}</td></tr>`)):empty("Aucune fiche d’appel enregistrée.")}</section>`;
     $("#new-call",target).addEventListener("click",()=>startCall(classes.rows,dialogForm).catch(error=>toast(error.message,"error")));
@@ -111,7 +111,7 @@ export async function renderSessions(target,context) {
     const active=rows.filter(row=>row.active).length;
     const counters=[[present,"Présents à l’appel"],[absent,"Absents"],[waiting,"En attente"],[active,"Au CDI"]];
     target.innerHTML=section("Fiche d’appel",e(session.title+" · "+session.roster_name+" · "+dateTime(session.started_at)),
-      `<a class="btn secondary" href="${address}">${icon("previous")} Toutes les séances</a>`+
+      `<a class="btn secondary" href="${urlFor(address)}">${icon("previous")} Toutes les séances</a>`+
       button("Export CSV","download",'id="call-csv"')+
       (session.ended_at?"":button("Garder des élèves au CDI","users",'id="keep-at-cdi"')+button("Terminer la séance","logout",'id="finish-call"',"primary")))
       +`<div class="metrics call-metrics">${counters.map(([n,title])=>`<div class="metric"><span class="icon-box">${icon("users")}</span><div><b>${n}</b><span>${title}</span></div></div>`).join("")}</div>

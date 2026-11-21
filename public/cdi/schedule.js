@@ -1,4 +1,4 @@
-import { api, day, e, icon, notice, today } from "./shared.js";
+import { api, urlFor, day, e, icon, notice, today } from "./shared.js";
 import { timelineBounds, weekPdf } from "./planning-pdf.js";
 
 const names = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
@@ -73,7 +73,7 @@ export async function renderPlanning(target, context) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !Number.isFinite(Date.parse(start))) start=weekStart(today());
   else start=weekStart(start);
   target.innerHTML=section("Planning du CDI","Planifiez les cours et les réservations. Faites glisser un créneau ou ouvrez-le pour le modifier.",
-      (showScreenLink?`<a class="btn secondary" href="/planning-ecran" target="_blank" rel="noopener">${icon("wide")} Vue écran</a>`:"")+
+      (showScreenLink?`<a class="btn secondary" href="${urlFor("/planning-ecran")}" target="_blank" rel="noopener">${icon("wide")} Vue écran</a>`:"")+
       button("Ajouter un créneau","plus",'data-plan="new"',"primary"))
     + `<section class="panel planning-panel"><div class="planning-toolbar">
       <div class="planning-navigation">${button("Précédente","previous",'data-plan="prev" aria-label="Semaine précédente"')}${dateField(start)}
@@ -93,7 +93,7 @@ export async function renderPlanning(target, context) {
     data=result;
     start=next;
     dateInput.value=start;
-    if (writeHistory) history.replaceState(null,"","/gestion/planning?week="+start);
+    if (writeHistory) history.replaceState(null,"",urlFor("/gestion/planning?week="+start));
     weekend.checked=weekendOverride??data.hide_weekend;
     redraw();
   }

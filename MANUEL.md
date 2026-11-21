@@ -16,9 +16,9 @@ Ce manuel s’adresse à l’équipe du CDI, à la vie scolaire et à la personn
 
 ## 1. Mise en service
 
-Pour installer le service, suis la section [Installation du README](README.md#installation). Pour une première mise en service dans l’établissement, procède dans cet ordre.
+Pour installer le service, utilise le [guide PHP](docs/INSTALLATION-PHP.md), le [guide Portainer](docs/INSTALLATION-PORTAINER.md) ou [Docker Compose depuis les sources](README.md#installation). Pour une première mise en service dans l’établissement, procède dans cet ordre.
 
-1. Sur `/gestion`, crée le compte administrateur avec la clé obtenue dans les journaux du service. Le mot de passe doit comporter au moins 12 caractères.
+1. Ouvre l’espace de gestion avec l’adresse indiquée par ton guide d’installation. Crée le compte administrateur avec la clé obtenue dans les journaux Docker ou dans le fichier `installation.key` de l’édition PHP. Le mot de passe doit comporter au moins 12 caractères.
 2. Ajoute les classes et les élèves manuellement ou importe le CSV. Fais les premiers essais avec des fiches fictives.
 3. Dans **Réglages de la borne**, configure le message d’accueil, la capacité du CDI, la deuxième heure et les horaires.
 4. Crée un compte par personne dans **Comptes et droits**, puis attribue les accès correspondant à ses missions.
@@ -135,7 +135,7 @@ Le formulaire propose aussi des droits distincts pour les classes, les groupes, 
 3. Pour restaurer, choisis le fichier et clique sur **Analyser le fichier**. Vérifie la date et les quantités affichées dans l’aperçu.
 4. Après avoir sauvegardé l’état actuel, clique sur **Restaurer cette sauvegarde** puis confirme. La restauration remplace les données du CDI et est inscrite dans le journal.
 
-Les comptes du personnel et les sessions de connexion sont gérés séparément. Les présences restaurées reprennent les horaires d’origine du fichier. La présence en cours s’affiche si son échéance est encore à venir.
+Le fichier JSON peut être restauré entre les éditions PHP et Docker. Les comptes du personnel et les sessions de connexion sont gérés séparément. Les présences restaurées reprennent les horaires d’origine du fichier. La présence en cours s’affiche si son échéance est encore à venir.
 
 ### Copie complète du volume Docker
 

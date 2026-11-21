@@ -1,7 +1,7 @@
 import { renderBackup, renderGroups, renderJournal, renderSessions, renderYears, startCall } from "./school.js";
 import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
-import { api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today } from "./shared.js";
+import { routePath, urlFor, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today } from "./shared.js";
 
 const app = document.querySelector("#app");
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -14,11 +14,11 @@ const box = (symbol) => `<span class="icon-box">${icon(symbol)}</span>`;
 const pill = (text, tone = "") => `<span class="pill ${tone ? "pill-" + tone : ""}">${e(text)}</span>`;
 
 function header(area = "kiosk", isAdmin = false) {
-  const links = area === "kiosk" ? `<button id="fullscreen" type="button" aria-label="Plein écran" aria-pressed="false" hidden>${icon("fullscreen")}<span>Plein écran</span></button><a href="/gestion">${icon("lock")}<span>Espace personnel</span></a>`
-    : `${area === "login" || isAdmin ? `<a href="/borne">${icon("wide")}<span>${area === "admin" ? '<span class="mobile-hide">Ouvrir la </span>Borne' : "Borne élèves"}</span></a>` : ""}
+  const links = area === "kiosk" ? `<button id="fullscreen" type="button" aria-label="Plein écran" aria-pressed="false" hidden>${icon("fullscreen")}<span>Plein écran</span></button><a href="${urlFor("/gestion")}">${icon("lock")}<span>Espace personnel</span></a>`
+    : `${area === "login" || isAdmin ? `<a href="${urlFor("/borne")}">${icon("wide")}<span>${area === "admin" ? '<span class="mobile-hide">Ouvrir la </span>Borne' : "Borne élèves"}</span></a>` : ""}
        ${area === "admin" ? `<button id="logout">${icon("logout")}<span>Déconnexion</span></button>` : ""}`;
   return `<header class="masthead"><div class="wrap masthead-inner">
-    <a class="brand" href="${area === "admin" ? "/gestion" : "/borne"}"><span class="institution"><span class="tricolor" aria-hidden="true"><i></i><i></i><i></i></span>CITÉ SCOLAIRE<br>CAMILLE CLAUDEL</span>
+    <a class="brand" href="${urlFor(area === "admin" ? "/gestion" : "/borne")}"><span class="institution"><span class="tricolor" aria-hidden="true"><i></i><i></i><i></i></span>CITÉ SCOLAIRE<br>CAMILLE CLAUDEL</span>
     <span class="brand-divider" aria-hidden="true"></span><span class="product">Gestion du CDI<small>Centre de documentation et d’information</small></span></a>
     <nav class="top-links" aria-label="Accès rapides">${links}</nav>
   </div></header>`;
@@ -250,7 +250,7 @@ function kiosk() {
 function login(status) {
   const heading = status.setup ? "Configurer l’espace de gestion" : "Connexion à l’espace personnel";
   app.innerHTML = `<div class="login-page">${header("login")}
-    <main class="wrap login-layout" id="main"><nav class="crumb" aria-label="Fil d’Ariane"><a href="/borne">Accueil</a>${icon("chevron")} <span>Espace personnel</span></nav>
+    <main class="wrap login-layout" id="main"><nav class="crumb" aria-label="Fil d’Ariane"><a href="${urlFor("/borne")}">Accueil</a>${icon("chevron")} <span>Espace personnel</span></nav>
     <section class="panel login-card">${box("lock")}<h1>${heading}</h1><p class="subtle">${status.setup ? "Créez le premier compte administrateur du CDI." : "Connectez-vous avec le compte fourni par votre administrateur."}</p>
     <form id="login-form" class="stack">
       ${status.setup && status.keyRequired ? '<label class="field"><span>Clé d’installation</span><input name="key" type="password" required autocomplete="off"><small>La clé figure dans les journaux du conteneur après le premier démarrage.</small></label>' : ""}
@@ -270,7 +270,7 @@ function login(status) {
     const target = $("#login-error");
     submit.disabled = true;
     target.hidden = true;
-    try { await api("/auth/" + (status.setup ? "setup" : "login"), "POST", data); location.assign("/gestion"); }
+    try { await api("/auth/" + (status.setup ? "setup" : "login"), "POST", data); location.assign(urlFor("/gestion")); }
     catch (error) { target.innerHTML = notice(error.message, "error"); target.hidden = false; submit.disabled = false; }
   });
 }
@@ -326,16 +326,16 @@ function adminShell(user, selected) {
   const selectedTab = visible.find((entry) => entry[0] === selected) ?? visible[0];
   if (!selectedTab) { login({ setup:false }); return; }
   view = selectedTab[0];
-  if (location.pathname !== "/gestion/" + view) history.replaceState(null, "", "/gestion/" + view);
+  if (routePath() !== "/gestion/" + view) history.replaceState(null, "", urlFor("/gestion/" + view));
   app.innerHTML = `<div class="admin-bg">${header("admin",me.admin)}<div class="wrap admin-shell">
     <aside class="sidebar"><p class="sidebar-title">Espace de gestion</p><nav aria-label="Administration du CDI">
-      ${visible.map(([key, title, glyph]) => `<a class="side-link" href="/gestion/${key}" ${key === view ? 'aria-current="page"' : ""}>${icon(glyph)}${title}</a>`).join("")}
+      ${visible.map(([key, title, glyph]) => `<a class="side-link" href="${urlFor("/gestion/" + key)}" ${key === view ? 'aria-current="page"' : ""}>${icon(glyph)}${title}</a>`).join("")}
     </nav><p class="user-info">${icon("user")}${e(me.name)}</p></aside>
     <main class="admin-main" id="main"><p class="loading">Chargement…</p></main>
     <dialog class="dialog" id="dialog" aria-labelledby="dialog-title"></dialog><div role="status" class="toast" id="toast" hidden></div>
     </div></div>`;
   $("#logout").addEventListener("click", async () => {
-    try { await api("/auth/logout", "POST"); location.assign("/connexion"); }
+    try { await api("/auth/logout", "POST"); location.assign(urlFor("/connexion")); }
     catch (error) { toast(error.message, "error"); }
   });
   $("#main").addEventListener("click", actionHandler);
@@ -343,7 +343,7 @@ function adminShell(user, selected) {
 }
 
 function pageError(error) {
-  if (error.status === 401) location.assign("/connexion");
+  if (error.status === 401) location.assign(urlFor("/connexion"));
   else $("#main").innerHTML = `<div class="panel panel-body">${notice(error.message, "error")}</div>`;
 }
 async function render() {
@@ -501,7 +501,7 @@ async function renderKioskSettings() {
           <label class="check-line"><input type="checkbox" name="open" ${settings.open ? "checked" : ""}> Accepter les nouvelles arrivées</label>
           <p class="hint">La fermeture temporaire conserve les présences en cours.</p>
           <label class="check-line"><input type="checkbox" name="second_hour" ${settings.second_hour ? "checked" : ""}> Autoriser une deuxième heure</label>
-          <p class="hint">Si la case est décochée, toute nouvelle présence dure une heure.</p>
+          <p class="hint">Si la case est décochée, les nouveaux départs sont fixés à la prochaine heure pleine.</p>
         </fieldset>
         <label class="field"><span>Capacité du CDI</span><input type="number" name="capacity" min="1" max="1000" step="1" value="${e(settings.capacity)}" placeholder="Ex. 30">
           <small>Laisse vide pour un accueil sans limite de places.</small></label>
@@ -774,7 +774,7 @@ function actionHandler(event) {
 }
 
 async function start() {
-  const { pathname } = location;
+  const pathname = routePath();
   if (pathname.replace(/\/$/,"") === "/planning-ecran") { renderScreen(app); return; }
   if (!(pathname === "/connexion" || pathname.startsWith("/gestion"))) { kiosk(); return; }
   try {

@@ -41,9 +41,22 @@ export const time = (value) => timeFormat.format(value);
 export const day = (value) => dayFormat.format(new Date(typeof value === "string" ? value + "T12:00:00Z" : value));
 export const today = () => isoFormat.format(new Date());
 export const notice = (message, tone = "", symbol) => `<div class="notice ${tone}">${icon(symbol ?? (tone === "error" ? "warning" : tone === "success" ? "check" : "info"))}<div>${e(message)}</div></div>`;
+const phpEntry = globalThis.document?.querySelector('meta[name="cdi-entry"]')?.content;
+
+export function urlFor(path) {
+  if (!phpEntry) return path;
+  const url = new URL(path, location.origin);
+  url.searchParams.set("route", url.pathname);
+  return phpEntry + "?" + url.searchParams.toString() + url.hash;
+}
+
+export function routePath() {
+  return phpEntry ? new URLSearchParams(location.search).get("route") || "/" : location.pathname;
+}
+
 export async function api(path, method = "GET", data) {
   const sendsBody = data !== undefined;
-  const response = await fetch("/api" + path, {
+  const response = await fetch(urlFor("/api" + path), {
     method,
     credentials: "same-origin",
     ...(sendsBody ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) } : {}),

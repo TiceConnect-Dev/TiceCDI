@@ -3,7 +3,7 @@
   <h1>Gestion du CDI</h1>
   <p><strong>Cité scolaire Camille Claudel · Fourmies</strong></p>
   <p>Borne de pointage, suivi des présences et planning du centre de documentation et d’information.</p>
-  <p><a href="#installation">Installation</a> · <a href="#fonctionnalités">Fonctionnalités</a> · <a href="MANUEL.md">Manuel d’utilisation</a></p>
+  <p><a href="#installation">Installations</a> · <a href="#fonctionnalités">Fonctionnalités</a> · <a href="MANUEL.md">Manuel d’utilisation</a></p>
 </div>
 
 ## Fonctionnalités
@@ -20,6 +20,12 @@
 Un pointage à **8 h 30** expire à **9 h**, ou à **10 h** avec l’option deuxième heure. À l’échéance, la présence sort de la liste et la place est libérée. Les horaires sont exprimés en heure de Paris.
 
 ## Installation
+
+| Méthode | À récupérer | Documentation |
+| --- | --- | --- |
+| **PHP · hébergement classique** | [Archive PHP à décompresser](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/Gestion-CDI-PHP.zip) | [Installation PHP et XAMPP](docs/INSTALLATION-PHP.md) |
+| **Docker · Portainer** | [Stack prête à coller](compose.portainer.yaml) ou [image Docker en fichier](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/Gestion-CDI-Docker-amd64.tar.gz) | [Installation Portainer](docs/INSTALLATION-PORTAINER.md) |
+| **Docker · depuis les sources** | [Code du dépôt](https://github.com/Xeros59/Gestion-CDI) | [Démarrage avec Docker Compose](#démarrer-avec-docker-compose) |
 
 ### Démarrer avec Docker Compose
 
@@ -72,6 +78,8 @@ Pour choisir le dossier de données ou le port, renseigne `CDI_DATA_DIR` ou `POR
 | [`cdi/`](cdi/) | API, règles de présence, planning, annuaire, sauvegardes |
 | [`public/cdi/`](public/cdi/) | Borne, écrans de gestion, planning et génération des PDF |
 | [`standalone/`](standalone/) | Serveur HTTP Node.js et adaptateur SQLite |
+| [`php/`](php/) | Serveur PHP, SQLite et sauvegardes JSON compatibles |
+| [`scripts/build-php.sh`](scripts/build-php.sh) | Assemblage du ZIP PHP avec les ressources de l’interface |
 | [`drizzle/`](drizzle/) | Migrations SQL appliquées au démarrage |
 | [`compose.yaml`](compose.yaml) et [`Dockerfile`](Dockerfile) | Configuration du déploiement autonome |
 
