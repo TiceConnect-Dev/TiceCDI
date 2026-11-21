@@ -1,0 +1,11 @@
+*
+!Dockerfile
+!cdi
+!cdi/**
+!standalone
+!standalone/**
+!drizzle
+!drizzle/*.sql
+!public
+!public/cdi
+!public/cdi/**
