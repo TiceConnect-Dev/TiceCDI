@@ -24,7 +24,7 @@ Un pointage à **8 h 30** expire à **9 h**, ou à **10 h** avec l’option deux
 | Méthode | À récupérer | Documentation |
 | --- | --- | --- |
 | **PHP · hébergement classique** | [Archive PHP à décompresser](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/Gestion-CDI-PHP.zip) | [Installation PHP et XAMPP](docs/INSTALLATION-PHP.md) |
-| **Docker · Portainer** | [Stack prête à coller](compose.portainer.yaml) ou [image Docker en fichier](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/Gestion-CDI-Docker-amd64.tar.gz) | [Installation Portainer](docs/INSTALLATION-PORTAINER.md) |
+| **Docker · Portainer** | [Image Docker à importer](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/Gestion-CDI-Docker-amd64.tar.gz) et [stack prête à coller](compose.portainer.yaml) | [Installation Portainer](docs/INSTALLATION-PORTAINER.md) |
 | **Docker · depuis les sources** | [Code du dépôt](https://github.com/Xeros59/Gestion-CDI) | [Démarrage avec Docker Compose](#démarrer-avec-docker-compose) |
 
 ### Démarrer avec Docker Compose

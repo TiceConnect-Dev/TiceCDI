@@ -1,6 +1,7 @@
 services:
   cdi:
     image: ghcr.io/xeros59/gestion-cdi:${CDI_IMAGE_TAG:-latest}
+    pull_policy: "${CDI_PULL_POLICY:-never}"
     restart: unless-stopped
     init: true
     ports:
