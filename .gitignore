@@ -1,0 +1,23 @@
+# Données et configuration locales
+/data/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-wal
+*.db-shm
+installation.key
+Sauvegarde-CDI-*.json
+Archive-CDI-*.csv
+/exports/
+/imports/
+/backups/
+
+# Fichiers générés localement
+node_modules/
+*.log
+.DS_Store
