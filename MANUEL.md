@@ -4,7 +4,7 @@ Présences, planning et fréquentation du CDI · Une application de TiceConnect
 
 ## 1. Mettre en service
 
-Suivez le [guide PHP](docs/INSTALLATION-PHP.md) ou le [guide Docker et Portainer](docs/INSTALLATION-PORTAINER.md). Au premier démarrage, créez un compte administrateur nominatif avec la clé d’installation générée localement. Attribuez un compte nominatif à chaque agent et les seuls droits utiles à ses missions.
+Suivez le [guide PHP](docs/INSTALLATION-PHP.md) ou le [guide Docker et Portainer](docs/INSTALLATION-PORTAINER.md). Au premier démarrage, créez un compte administrateur nominatif avec la clé d’installation générée localement. Attribuez un compte nominatif à chaque agent et les seuls droits utiles à ses missions. Avant l’ouverture, suivez la [check-list de sécurité](SECURITY.md#check-list-de-mise-en-production) : HTTPS, adresse publique dans `CDI_ORIGIN` et accès à la gestion limité au réseau de l’établissement.
 
 Dans **Établissement et données personnelles**, renseignez l’identité et le contact de l’établissement, le contact du DPD, la finalité, la base légale, la source, les destinataires, l’hébergement, les durées et les modalités d’exercice des droits. Vérifiez les trois documents avant diffusion. La notice courte est accessible depuis la borne et la notice complète peut être téléchargée pour l’ENT. La fiche de registre est un modèle à valider et compléter localement.
 

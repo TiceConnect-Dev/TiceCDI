@@ -281,8 +281,7 @@ function authenticate(Store $db, int $clock): ?array
 
 function cookie(string $token, int $expires, string $name = "cdi_session"): void
 {
-    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || str_starts_with(setting('CDI_ORIGIN'), 'https://');
+    $secure = isHttps();
     $prefix = rtrim(str_replace('\\', '/', dirname(entryPath())), '/');
     setcookie($name, $token, [
         'expires' => $expires, 'path' => ($prefix === '.' ? '' : $prefix) . '/',
@@ -323,10 +322,64 @@ function newPassword(mixed $value): string
     return $value;
 }
 
-function passwordSecret(string $password, ?string $salt = null): string
+// PBKDF2-SHA256 à 600 000 itérations, format « pbkdf2$itérations$sel$empreinte » partagé avec l’édition Docker.
+// L’ancien format « sel:empreinte » (100 000 itérations) reste accepté et est converti à la connexion suivante.
+const PASSWORD_ITERATIONS = 600_000;
+
+function passwordSecret(string $password): string
 {
-    $salt ??= bin2hex(random_bytes(16));
-    return $salt . ':' . hash_pbkdf2('sha256', $password, $salt, 100_000, 64);
+    $salt = bin2hex(random_bytes(16));
+    return 'pbkdf2$' . PASSWORD_ITERATIONS . '$' . $salt . '$' . hash_pbkdf2('sha256', $password, $salt, PASSWORD_ITERATIONS, 64);
+}
+
+/** @return array{ok: bool, upgrade: bool} */
+function verifyPassword(string $password, ?string $stored): array
+{
+    $params = null;
+    if (is_string($stored) && preg_match('/^([a-f0-9]{32}):([a-f0-9]{64})$/D', $stored, $match)) {
+        $params = [100_000, $match[1], $match[2]];
+    } elseif (is_string($stored) && preg_match('/^pbkdf2\$(\d{6,7})\$([a-f0-9]{32})\$([a-f0-9]{64})$/D', $stored, $match)
+        && (int) $match[1] >= 100_000 && (int) $match[1] <= 5_000_000) {
+        $params = [(int) $match[1], $match[2], $match[3]];
+    }
+    [$iterations, $salt, $hash] = $params ?? [PASSWORD_ITERATIONS, str_repeat('0', 32), ''];
+    $ok = hash_equals($hash, hash_pbkdf2('sha256', $password, $salt, $iterations, 64)) && $params !== null;
+    return ['ok' => $ok, 'upgrade' => $ok && $iterations < PASSWORD_ITERATIONS];
+}
+
+function clientAddress(): string
+{
+    $address = $_SERVER['REMOTE_ADDR'] ?? 'borne';
+    if (setting('CDI_TRUST_PROXY') === '1' && is_string($_SERVER['HTTP_X_FORWARDED_FOR'] ?? null)) {
+        $chain = array_values(array_filter(array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']))));
+        if ($chain && filter_var(end($chain), FILTER_VALIDATE_IP)) {
+            $address = end($chain);
+        }
+    }
+    return $address;
+}
+
+function isHttps(): bool
+{
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || str_starts_with(setting('CDI_ORIGIN'), 'https://')
+        || (setting('CDI_TRUST_PROXY') === '1' && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+}
+
+function securityHeaders(): void
+{
+    header_remove('X-Powered-By');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Referrer-Policy: same-origin');
+    header('Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)');
+    header('Cross-Origin-Opener-Policy: same-origin');
+    header('Cross-Origin-Resource-Policy: same-origin');
+    header('X-Robots-Tag: noindex, nofollow');
+    header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    if (isHttps()) {
+        header('Strict-Transport-Security: max-age=31536000');
+    }
 }
 
 function paramIds(mixed $value, int $max = 500): array

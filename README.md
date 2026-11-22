@@ -3,7 +3,7 @@
   <h1>TiceCDI</h1>
   <p>Présences, planning et fréquentation du CDI</p>
   <p>Application gratuite à code source accessible.</p>
-  <p><a href="#installation">Installation</a> · <a href="MANUEL.md">Manuel</a> · <a href="#licence">Licence</a></p>
+  <p><a href="#installation">Installation</a> · <a href="MANUEL.md">Manuel</a> · <a href="#sécurité">Sécurité</a> · <a href="CHANGELOG.md">Nouveautés</a> · <a href="#licence">Licence</a></p>
 </div>
 
 ## Fonctions
@@ -24,7 +24,7 @@
 | Docker et Portainer | [Stack Portainer](compose.portainer.yaml) · [Image à importer](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) | [Docker et Portainer](docs/INSTALLATION-PORTAINER.md) |
 | Docker depuis les sources | `docker compose up -d --build` après avoir copié `.env.example` en `.env` | [Variables et mise à jour](docs/INSTALLATION-PORTAINER.md) |
 
-L’image Linux amd64 utilise l’adresse historique `ghcr.io/xeros59/gestion-cdi`. Une arrivée à **8 h 30** expire à **9 h**. Avec un créneau supplémentaire, elle expire à **10 h**. Une échéance expirée libère la place et reste distincte d’une sortie constatée.
+L’image Linux amd64 utilise l’adresse historique `ghcr.io/xeros59/gestion-cdi`. Les nouveautés de chaque version sont listées dans le [journal des versions](CHANGELOG.md). Une arrivée à **8 h 30** expire à **9 h**. Avec un créneau supplémentaire, elle expire à **10 h**. Une échéance expirée libère la place et reste distincte d’une sortie constatée.
 
 ## Avant le premier import
 
@@ -34,6 +34,12 @@ L’image Linux amd64 utilise l’adresse historique `ghcr.io/xeros59/gestion-cd
 4. Testez la purge et la restauration avec des fiches fictives. Vérifiez l’heure du **dernier passage réussi** dans l’administration.
 
 TiceCDI traite les données localement et ne contient ni télémétrie ni appel à un service tiers pour les données élèves. La mise à jour conserve les comptes et les données sur le volume existant. Les nouveaux déploiements proposent la fin de journée pour les passages nominatifs. Sur une base existante, la purge reste en attente de validation. Le [manuel](MANUEL.md) détaille la reprise et les durées.
+
+## Sécurité
+
+TiceCDI v1.3.0 renforce la protection par défaut : mots de passe hachés en PBKDF2-SHA256 à 600 000 itérations (conversion automatique des anciens comptes), en-têtes de sécurité sur toutes les réponses, méthodes HTTP limitées, conteneur Docker en lecture seule sans privilèges et règles Apache et Nginx pour l’édition PHP.
+
+Avant l’ouverture, suivez la [check-list de mise en production](SECURITY.md#check-list-de-mise-en-production) : HTTPS, `CDI_ORIGIN`, `CDI_TRUST_PROXY` derrière un proxy de confiance et accès à la gestion restreint au réseau de l’établissement. Les vulnérabilités se signalent selon [SECURITY.md](SECURITY.md).
 
 ## Licence
 

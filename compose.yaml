@@ -7,6 +7,17 @@ services:
       - "${CDI_BIND_IP:-127.0.0.1}:${CDI_PORT:-8080}:8080"
     environment:
       CDI_ORIGIN: "${CDI_ORIGIN:-}"
+      CDI_TRUST_PROXY: "${CDI_TRUST_PROXY:-0}"
+    # Durcissement : système de fichiers en lecture seule, aucun privilège Linux, ressources bornées.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
     volumes:
       - cdi_data:/data
     healthcheck:

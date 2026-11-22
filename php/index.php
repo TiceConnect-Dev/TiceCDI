@@ -12,6 +12,7 @@ function renderPage(string $path): void
     $entry = htmlspecialchars(entryPath(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $assets = rtrim(dirname($entry), '/') . '/cdi';
     header('Content-Type: text/html; charset=utf-8');
+    header_remove('Content-Security-Policy');
     header('Content-Security-Policy: default-src \'self\'; script-src \'self\'; style-src \'self\'; img-src \'self\' data:; object-src \'none\'; base-uri \'none\'; form-action \'self\'; frame-ancestors \'self\'');
     echo <<<HTML
 <!doctype html>
@@ -35,14 +36,19 @@ HTML;
 }
 
 header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
-header('Referrer-Policy: same-origin');
+securityHeaders();
 $path = rtrim(q('route', '/'), '/') ?: '/';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if (!in_array($method, ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE'], true)) {
+    http_response_code(405);
+    header('Allow: GET, HEAD, POST, PATCH, DELETE');
+    exit;
+}
 
 try {
+    setup();
+    securityHeaders();
     if (str_starts_with($path, '/api/') || $path === '/healthz') {
-        setup();
         $migrations = __DIR__ . '/drizzle';
         if (!is_file($migrations . '/0000_cute_jubilee.sql')) {
             throw new RuntimeException('Migrations SQL introuvables');
