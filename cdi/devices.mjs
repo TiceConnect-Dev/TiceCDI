@@ -13,8 +13,8 @@ export function deviceExpiry(settings, clock) {
   return settings.duration === "annee" ? schoolYearEnd(clock) : clock + DURATIONS[settings.duration];
 }
 export async function deviceSettings(m) {
-  const row = await m.one("SELECT duration,renew FROM kiosk_device_settings WHERE id=1");
-  return { duration:row?.duration ?? "30j", renew:row ? row.renew === 1 : true };
+  const row = await m.one("SELECT duration,renew,name_search FROM kiosk_device_settings WHERE id=1");
+  return { duration:row?.duration ?? "30j", renew:row ? row.renew === 1 : true, name_search:row ? row.name_search === 1 : true };
 }
 
 // Appelé à chaque interrogation de la borne : dernière activité (au plus une fois par minute) et prolongation glissante.
@@ -45,9 +45,11 @@ export async function devicesApi(ctx) {
     const data = await payload(request);
     if (!(data.duration in DURATIONS) || typeof data.renew !== "boolean") fail(400, "Choisissez une durée d’activation valide.");
     const before = await deviceSettings(m);
+    const nameSearch = typeof data.name_search === "boolean" ? data.name_search : before.name_search;
     await m.batch([
-      m.stmt("INSERT INTO kiosk_device_settings (id,duration,renew) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET duration=excluded.duration,renew=excluded.renew", data.duration, Number(data.renew)),
-      audit(m, me, "confidentialite", "Modification de la durée d’activation des postes", "Borne", before, { duration:data.duration, renew:data.renew }),
+      m.stmt(`INSERT INTO kiosk_device_settings (id,duration,renew,name_search) VALUES (1,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET duration=excluded.duration,renew=excluded.renew,name_search=excluded.name_search`, data.duration, Number(data.renew), Number(nameSearch)),
+      audit(m, me, "confidentialite", "Modification des réglages des postes de borne", "Borne", before, { duration:data.duration, renew:data.renew, name_search:nameSearch }),
     ]);
     return json(await deviceSettings(m));
   }
@@ -62,4 +64,13 @@ export async function devicesApi(ctx) {
     return json({ ok:true });
   }
   fail(404, "Action introuvable.");
+}
+
+// Recherche par nom sur la borne : au plus 6 résultats, prénom et initiale du nom seulement, sélection valable 3 minutes.
+export function searchTokens(query, words) {
+  const tokens = words(query).split(" ").filter((token) => token.length >= 2).slice(0, 4);
+  return tokens.join("").length >= 3 ? tokens : [];
+}
+export function kioskLabel(row) {
+  return `${row.first_name} ${row.last_name.trim().charAt(0).toLocaleUpperCase("fr")}.`;
 }

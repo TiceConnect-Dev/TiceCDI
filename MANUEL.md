@@ -30,7 +30,7 @@ Sur le poste dédié, ouvrez **Borne → Postes de borne**, choisissez **Activer
 
 L’administrateur choisit sur la même page la **durée d’activation** (12 heures, 7 jours, 30 jours ou jusqu’au 31 août) et le **renouvellement automatique** : une borne qui sert régulièrement est alors prolongée d’elle-même et n’a plus à être réactivée ; une borne éteinte plus longtemps que la durée choisie expire. Par défaut : 30 jours, renouvelés à l’usage. La liste des postes indique qui les a activés, leur dernière activité et leur validité ; **Révoquer** désactive un seul poste, **Révoquer tous les postes** les désactive tous.
 
-Sur la borne, scannez la carte CDI ou saisissez son code. L’élève choisit **Entrée** ou **Sortie**. Une douchette Code 128 en mode clavier HID avec suffixe Entrée peut valider l’entrée depuis le champ. La borne efface la saisie après chaque pointage et la confirmation disparaît au bout de cinq secondes. Elle n’affiche ni nom, ni annuaire, ni liste des présents.
+Sur la borne, l’élève scanne sa carte CDI ou saisit son code, puis choisit **Entrée** ou **Sortie**. Une douchette Code 128 en mode clavier HID avec suffixe Entrée peut valider l’entrée depuis le champ. Un élève sans carte choisit **Pas de carte ? Cherche ton nom**, tape au moins 3 lettres de son nom ou de son prénom et touche son nom dans la liste (prénom, initiale du nom et classe, 6 résultats au plus). La borne affiche l’état du CDI (ouvert, fermé, places libres), efface la saisie après chaque pointage et ne montre ni annuaire ni liste des présents. Elle ne contient aucun lien vers l’espace du personnel ; seul un petit lien « Protection des données » en pied de page donne accès à la notice. La recherche par nom se désactive dans **Postes de borne**.
 
 ### Installer la borne comme application
 
@@ -71,6 +71,8 @@ Dans **Planning du CDI**, configurez les horaires et ajoutez une réservation, u
 La borne, les formulaires et le planning proposent des libellés explicites, un focus visible, des commandes au clavier et des états exprimés en texte. Toute déclaration de conformité RGAA repose sur une évaluation effective de l’instance. [Évaluer et déclarer l’accessibilité](https://accessibilite.numerique.gouv.fr/obligations/evaluation-conformite/)
 
 ## 4. Import et droits individuels
+
+**Supprimer une classe** : si elle contient des élèves, choisissez la classe qui les accueillera (les fiches retirées suivent). Une classe sans élève actif se supprime directement et ses fiches retirées sont rangées dans « Anciens élèves ».
 
 **Pronote** : exportez la liste des élèves en CSV (colonnes Nom, Prénom et Classe, ou Élève au format NOM Prénom). **SIECLE** : importez directement `ElevesSansAdresses.xml` depuis l’export « Base élèves » ; la division devient la classe, les élèves sortis sont ignorés et l’identifiant SIECLE permet de suivre un élève qui change de classe à la rentrée. Le fichier XML est lu dans le navigateur : seuls le nom, le prénom, la classe et l’identifiant sont envoyés au serveur.
 

@@ -42,30 +42,107 @@ function home() {
 }
 
 function kiosk() {
-  app.innerHTML=`<div class="kiosk-page">${header("kiosk")}<main class="wrap kiosk" id="main">
-    <section class="panel kiosk-card" aria-labelledby="kiosk-title">
-      <header class="kiosk-intro"><div><h1 id="kiosk-title">Pointage du CDI</h1>
-        <p>Scanne ta carte ou saisis son code. Choisis Entrée ou Sortie.</p></div></header>
-      <div class="kiosk-body">
-        <div id="kiosk-state" role="status"><p>Vérification de l’activation du poste…</p></div>
-        <form id="entry-form" autocomplete="off" hidden>
-          <label class="field" for="entry-input"><span>Code-barres de ta carte CDI</span>
-            <input id="entry-input" type="password" maxlength="13" spellcheck="false" autocapitalize="characters" required></label>
-          <label class="check-line" id="second-hour"><input type="checkbox" id="two-hours"> Rester jusqu’à la deuxième heure pleine</label>
-          <div class="button-row"><button class="btn primary" id="entry-submit" type="submit" name="direction" value="entree">Entrée</button>
-            <button class="btn secondary" type="submit" name="direction" value="sortie">Sortie</button>
-            <button type="button" class="btn secondary" id="kiosk-fullscreen">Plein écran</button>
-            <button type="button" class="btn secondary" id="kiosk-camera" hidden>${icon("scan")}Scanner avec la caméra</button>
-            <button type="button" class="btn secondary" id="kiosk-install" hidden>${icon("download")}Installer la borne</button></div>
-        </form><div id="entry-message" role="status" aria-live="polite" aria-atomic="true"></div></div>
-    </section></main>${footer}</div>`;
+  // Borne élèves : page plein écran, sans liens vers l’espace du personnel.
+  app.innerHTML=`<div class="borne" id="main">
+    <header class="borne-top">
+      <div class="borne-brand">${brand(true)}<div><b>CDI</b><span>Centre de documentation et d’information</span></div></div>
+      <div class="borne-clock"><time id="borne-time"></time><span id="borne-date"></span></div>
+    </header>
+    <main class="borne-stage">
+      <section class="borne-card" aria-labelledby="kiosk-title">
+        <div class="borne-hero">
+          <h1 id="kiosk-title">Bienvenue au CDI</h1>
+          <p>Scanne ta carte CDI, puis choisis <b>Entrée</b> ou <b>Sortie</b>.</p>
+          <div class="borne-status" id="borne-status" hidden></div>
+        </div>
+        <div class="borne-body">
+          <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
+          <form id="entry-form" autocomplete="off" hidden>
+            <label class="borne-label" for="entry-input">Code de ta carte CDI</label>
+            <div class="borne-scan">${icon("scan")}<input id="entry-input" type="text" inputmode="text" maxlength="13" spellcheck="false" autocapitalize="characters" autocomplete="off" placeholder="CDI…" required></div>
+            <button type="button" class="borne-link" id="name-open" hidden>${icon("search")}<span>Pas de carte ? Cherche ton nom</span></button>
+            <div class="borne-search" id="name-panel" hidden>
+              <div class="borne-search-head"><label class="borne-label" for="name-input">Ton nom ou ton prénom</label>
+                <button type="button" class="borne-link" id="name-close">${icon("scan")}<span>J’ai ma carte</span></button></div>
+              <div class="borne-scan">${icon("search")}<input id="name-input" type="search" autocomplete="off" spellcheck="false" maxlength="60" placeholder="3 lettres minimum"></div>
+              <div id="name-results" class="borne-results" role="listbox" aria-label="Élèves trouvés"></div>
+            </div>
+            <div class="borne-picked" id="name-picked" hidden></div>
+            <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
+            <div class="borne-actions">
+              <button class="borne-btn borne-in" id="entry-submit" type="submit" name="direction" value="entree">${icon("login")}<span>Entrée</span></button>
+              <button class="borne-btn borne-out" type="submit" name="direction" value="sortie">${icon("logout")}<span>Sortie</span></button>
+            </div>
+          </form>
+          <div id="entry-message" class="borne-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+        </div>
+      </section>
+    </main>
+    <footer class="borne-foot">
+      <a href="${urlFor("/notice")}" class="borne-notice">Protection des données</a>
+      <div class="borne-tools">
+        <button type="button" class="borne-tool" id="kiosk-camera" hidden>${icon("scan")}<span>Caméra</span></button>
+        <button type="button" class="borne-tool" id="kiosk-fullscreen">${icon("fullscreen")}<span>Plein écran</span></button>
+        <button type="button" class="borne-tool" id="kiosk-install" hidden>${icon("download")}<span>Installer</span></button>
+      </div>
+    </footer>
+  </div>`;
+  const clockFormat=new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
+  const dateFormat=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"long",timeZone:"Europe/Paris"});
+  const tick=()=>{ const now=new Date(); $("#borne-time").textContent=clockFormat.format(now); $("#borne-date").textContent=dateFormat.format(now); };
+  tick();
+  setInterval(tick,10_000);
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
+  // Recherche par nom (élèves sans carte) : la sélection devient une référence temporaire envoyée à la place du code.
+  const namePanel=$("#name-panel"), nameInput=$("#name-input"), nameResults=$("#name-results"), picked=$("#name-picked");
+  let pickedRef=null, searchTimer, searchVersion=0, nameIdle;
+  const scanBox=input.closest(".borne-scan"), scanLabel=$('label[for="entry-input"]');
+  function setNameMode(on) {
+    namePanel.hidden=!on;
+    scanBox.hidden=on; scanLabel.hidden=on;
+    $("#name-open").hidden=on || !nameSearchEnabled;
+    input.required=!on;
+    if(!on){ clearPick(); nameInput.value=""; nameResults.replaceChildren(); input.focus({preventScroll:true}); }
+    else nameInput.focus({preventScroll:true});
+  }
+  function clearPick() { pickedRef=null; picked.hidden=true; picked.replaceChildren(); }
+  let nameSearchEnabled=false;
+  $("#name-open").addEventListener("click",()=>setNameMode(true));
+  $("#name-close").addEventListener("click",()=>setNameMode(false));
+  nameInput.addEventListener("input",()=>{
+    clearTimeout(searchTimer); clearPick();
+    clearTimeout(nameIdle); nameIdle=setTimeout(()=>setNameMode(false),60_000);
+    searchTimer=setTimeout(async()=>{
+      const version=++searchVersion;
+      const query=nameInput.value.trim();
+      if(query.replace(/\s/g,"").length<3){ nameResults.innerHTML=`<p class="borne-hint">Tape au moins 3 lettres.</p>`; return; }
+      try {
+        const result=await api("/borne/recherche","POST",{q:query});
+        if(version!==searchVersion) return;
+        nameResults.innerHTML=result.rows.length
+          ? result.rows.map(row=>`<button type="button" class="borne-result" role="option" data-ref="${e(row.ref)}"><strong>${e(row.label)}</strong><span>${e(row.class_name)}</span></button>`).join("")
+            +(result.more?`<p class="borne-hint">Plus de résultats : précise ton nom et ton prénom.</p>`:"")
+          : `<p class="borne-hint">Aucun élève trouvé. Vérifie l’orthographe ou adresse-toi au personnel.</p>`;
+      } catch(error) { nameResults.innerHTML=`<p class="borne-hint">${e(error.message)}</p>`; }
+    },250);
+  });
+  nameResults.addEventListener("click",event=>{
+    const choice=event.target.closest("[data-ref]");
+    if(!choice) return;
+    pickedRef=choice.dataset.ref;
+    picked.innerHTML=`${icon("user")}<div><strong>${choice.querySelector("strong").innerHTML}</strong><span>${choice.querySelector("span").innerHTML}</span></div><button type="button" class="borne-link" id="name-change">Changer</button>`;
+    picked.hidden=false;
+    namePanel.hidden=true;
+    $("#name-change").addEventListener("click",()=>{ clearPick(); namePanel.hidden=false; nameInput.focus({preventScroll:true}); });
+    $("#entry-submit").focus({preventScroll:true});
+  });
   const entry=$("#entry-submit"), buttons=$$("button[type=submit]",form);
   let busy=false, expiry, refreshing=false;
   function show(text,tone) {
     clearTimeout(expiry);
-    message.innerHTML=notice(text,tone);
-    expiry=setTimeout(()=>message.replaceChildren(),5000);
+    message.className="borne-feedback "+(tone||"info");
+    message.innerHTML=`${icon(tone==="success"?"check":tone==="error"?"warning":"info")}<p>${e(text)}</p>`;
+    expiry=setTimeout(()=>{message.replaceChildren();message.className="borne-feedback";},6000);
   }
   async function refresh() {
     if(refreshing) return;
@@ -76,10 +153,22 @@ function kiosk() {
       form.hidden=!settings.activated;
       entry.disabled=busy || !settings.open;
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
+      nameSearchEnabled=Boolean(settings.name_search);
+      if(!nameSearchEnabled && !namePanel.hidden) setNameMode(false);
+      $("#name-open").hidden=!nameSearchEnabled || !namePanel.hidden || !picked.hidden;
       if($("#second-hour").hidden) two.checked=false;
       const text=!settings.activated ? "Ce poste doit être activé par le personnel du CDI."
         : !settings.open ? settings.reason : settings.message || "";
       if($("#kiosk-state").textContent!==text) $("#kiosk-state").textContent=text;
+      $("#kiosk-state").dataset.tone=!settings.activated||!settings.open?"warning":"info";
+      // Pastille d’état : ouvert, fermé ou nombre de places libres.
+      const status=$("#borne-status");
+      status.hidden=!settings.activated;
+      const full=settings.open && settings.places===0;
+      status.dataset.state=!settings.open||full?"closed":"open";
+      status.textContent=!settings.open?"CDI fermé"
+        : settings.places===null||settings.places===undefined?"CDI ouvert"
+        : full?"CDI complet":`CDI ouvert · ${settings.places} place${settings.places>1?"s":""} libre${settings.places>1?"s":""}`;
       if (form.hidden) { form.reset(); }
       else if(wasHidden) input.focus({preventScroll:true});
     } catch {
@@ -93,13 +182,16 @@ function kiosk() {
     if(busy || form.hidden) return;
     const direction=event.submitter?.value ?? "entree";
     if(direction==="entree" && entry.disabled) return;
-    const data={code:input.value.trim(),two_hours:two.checked};
+    const byName=!namePanel.hidden || !picked.hidden;
+    if(byName && !pickedRef) { show("Choisis ton nom dans la liste.","error"); return; }
+    const data=byName ? {ref:pickedRef,two_hours:two.checked} : {code:input.value.trim(),two_hours:two.checked};
     form.reset();
+    if(byName) setNameMode(false);
     busy=true;
     buttons.forEach(button=>button.disabled=true);
     try {
       const result=await api("/borne/"+direction,"POST",data);
-      show(direction==="sortie" ? "Pointage de sortie traité." : "Présence enregistrée jusqu’à "+time(result.expires_at)+".","success");
+      show(direction==="sortie" ? "Sortie enregistrée. À bientôt !" : (result.already ? "Tu es déjà enregistré·e" : "Bienvenue ! Présence enregistrée")+" jusqu’à "+time(result.expires_at)+".","success");
     } catch(error) { show(error.message,"error"); }
     finally {
       busy=false;
@@ -117,7 +209,7 @@ function kiosk() {
   });
   document.addEventListener("fullscreenchange",()=>{
     const control=$("#kiosk-fullscreen");
-    if(control) control.textContent=document.fullscreenElement?"Quitter le plein écran":"Plein écran";
+    if(control) control.innerHTML=icon("fullscreen")+`<span>${document.fullscreenElement?"Quitter le plein écran":"Plein écran"}</span>`;
   });
   refresh();
   setInterval(refresh,5000);
@@ -802,7 +894,14 @@ function actionHandler(event) {
   if (action === "exclude-new" || (action === "exclude-visit" && record)) exclusionDialog(record);
   if (action === "student-restore" && record) confirmDialog("Réactiver la fiche élève", `${record.first_name} ${record.last_name} pourra à nouveau utiliser son code CDI.`, "Réactiver", () => gestion("eleves/" + id, "PATCH", { ...record, reactivate:true }), "Fiche réactivée.", fetchStudents, false);
   if (action === "student-delete" && record) confirmDialog("Retirer l’élève", `${record.first_name} ${record.last_name} ne pourra plus pointer à la borne. Sa présence en cours prendra fin.`, "Retirer", () => gestion("eleves/" + id, "DELETE"), "Élève retiré de la borne.", fetchStudents);
-  if (action === "class-delete" && classRow) confirmDialog("Supprimer la classe", `Confirmez la suppression de la classe ${classRow.name}.`, "Supprimer", () => gestion("classes/" + id, "DELETE"), "Classe supprimée.");
+  if (action === "class-delete" && classRow) {
+    const others = classes.filter((row) => row.id !== classRow.id);
+    dialogForm("Supprimer la classe", `<p>La classe <strong>${e(classRow.name)}</strong> va être supprimée.</p>
+      ${classRow.total ? `<label class="field"><span>Déplacer ses ${classRow.total} élève${classRow.total > 1 ? "s" : ""} vers</span><select name="move_to" required><option value="">Choisir une classe</option>
+        ${others.map((row) => `<option value="${e(row.id)}">${e(row.name)}</option>`).join("")}</select><small>Les fiches retirées de la classe suivent aussi.</small></label>`
+        : `<p class="subtle">Aucun élève actif. Les éventuelles fiches retirées seront rangées dans la classe « Anciens élèves ».</p>`}`,
+      "Supprimer", (form) => gestion("classes/" + id, "DELETE", { move_to:form.elements.move_to?.value || "" }), { danger:true, success:"Classe supprimée.", refresh:render });
+  }
   if (action === "account-mfa-reset" && record && me.admin) confirmDialog("Réinitialiser la double authentification", `${record.name} pourra se connecter avec son seul mot de passe puis réactiver la double authentification. Ses sessions ouvertes seront fermées.`, "Réinitialiser", () => gestion("comptes/" + id + "/double-authentification", "DELETE"), "Double authentification réinitialisée.");
   if (action === "account-delete" && record) confirmDialog("Supprimer le compte", `Le compte de ${record.name} perdra immédiatement son accès.`, "Supprimer", () => gestion("comptes/" + id, "DELETE"), "Compte supprimé.");
   if (action === "exclude-lift" && record) confirmDialog("Lever l’exclusion", `Confirmez la levée de cette exclusion pour ${record.first_name} ${record.last_name}.`, "Lever l’exclusion", () => gestion("exclusions/" + id, "DELETE"), "Exclusion levée.", render, false);

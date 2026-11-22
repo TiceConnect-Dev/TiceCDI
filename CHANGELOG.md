@@ -1,5 +1,20 @@
 # Journal des versions
 
+## v1.7.0 · Nouvelle borne, recherche par nom et suppression de classe
+
+**Borne élèves**
+
+- Nouvelle page plein écran, plus grande et plus lisible : horloge, état du CDI (ouvert, fermé, places libres), grand champ de saisie, gros boutons Entrée et Sortie, messages de confirmation bien visibles.
+- Le code de la carte s’affiche en clair pendant la saisie (plus de points masqués).
+- Plus de liens « Données personnelles » ni « Espace personnel » dans l’en-tête : la borne ne montre que le pointage. Un petit lien « Protection des données » reste en pied de page pour l’information des élèves (RGPD).
+- **Recherche par nom pour les élèves sans carte** : « Pas de carte ? Cherche ton nom », 3 lettres minimum, au plus 6 résultats affichés en « Prénom N. · classe ». La sélection est valable 3 minutes sur ce seul poste ; le code de la carte n’est jamais envoyé au navigateur. Désactivable dans **Postes de borne**.
+
+**Classes**
+
+- Supprimer une classe qui contient des élèves propose de les déplacer vers une autre classe (fiches retirées comprises). Une classe sans élève actif se supprime directement : ses fiches retirées rejoignent la classe « Anciens élèves ».
+
+La migration `0008_kiosk_search.sql` s’applique seule.
+
 ## v1.6.0 · Postes de borne, pleine largeur et menu regroupé
 
 **Borne**

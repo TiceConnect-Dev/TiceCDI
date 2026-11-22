@@ -275,8 +275,11 @@ async function verifyLayout(hosts) {
         await page.screenshot({path:`dist/layout/${host.kind}-${width}.png`});
         await page.goto(host.route("/borne"));
         await page.locator("#kiosk-title").waitFor();
-        await page.waitForFunction(()=>document.querySelector(".masthead img")?.complete);
-        assert.ok((await assets(".masthead img")).file.endsWith("ticecdi-icon.webp"));
+        await page.waitForFunction(()=>document.querySelector(".borne-brand img")?.complete);
+        assert.ok((await assets(".borne-brand img")).file.endsWith("ticecdi-icon.webp"));
+        // Borne élèves : aucun lien vers l'espace du personnel.
+        assert.equal(await page.locator('a[href*="gestion"]').count(),0);
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
         await page.goto(host.route("/gestion"));
         await page.locator("#login-form").waitFor();
         await page.waitForFunction(()=>document.querySelector(".masthead img")?.complete);
@@ -473,7 +476,7 @@ function weekMonday() {
 async function devicesTest(host) {
   const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
   let state=await host.get("/gestion/borne/postes");
-  assert.deepEqual(state.settings,{duration:"30j",renew:true});
+  assert.deepEqual(state.settings,{duration:"30j",renew:true,name_search:true});
   const activation=await host.call("/gestion/borne/activation",{method:"POST",body:{label:"Borne accueil"}});
   const device=activation.cookies.find(c=>c.startsWith("cdi_device="));
   const setCookie=(await fetch(host.route("/api/gestion/borne/activation"),{method:"POST",headers:{"Content-Type":"application/json",Cookie:host.admin},body:"{}"}));
@@ -492,11 +495,43 @@ async function devicesTest(host) {
   assert.ok(db.prepare("SELECT expires_at FROM kiosk_devices WHERE token=?").all(key)[0].expires_at>Date.now()+29*86400000);
   // Durée de 12 h sans renouvellement.
   await host.patch("/gestion/borne/postes",{duration:"2h",renew:true},host.admin,400);
-  assert.deepEqual(await host.patch("/gestion/borne/postes",{duration:"12h",renew:false}),{duration:"12h",renew:false});
+  assert.deepEqual(await host.patch("/gestion/borne/postes",{duration:"12h",renew:false}),{duration:"12h",renew:false,name_search:true});
   db.prepare("UPDATE kiosk_devices SET last_seen=? WHERE token=?").run(Date.now()-120000,key);
   const quiet=await fetch(host.route("/api/borne/reglages"),{headers:{Cookie:device}});
   await quiet.json();
   assert.ok(!quiet.headers.getSetCookie().some(c=>c.startsWith("cdi_device=")));
+  // Recherche par nom pour les élèves sans carte : prénom et initiale seulement, sélection liée au poste.
+  await host.post("/gestion/import",{rows:[{first_name:"Zélie",last_name:"Bérangère-Test",class_name:"Classe Borne "+host.kind}]});
+  const kiosk=(path,body)=>fetch(host.route("/api/borne/"+path),{method:"POST",headers:{"Content-Type":"application/json",Cookie:device},body:JSON.stringify(body)});
+  let search=await (await kiosk("recherche",{q:"ze"})).json();
+  assert.equal(search.rows.length,0); assert.equal(search.short,true);
+  search=await (await kiosk("recherche",{q:"zelie berang"})).json();
+  assert.equal(search.rows.length,1);
+  assert.equal(search.rows[0].label,"Zélie B."); assert.equal(search.rows[0].class_name,"Classe Borne "+host.kind);
+  assert.ok(!("student_id" in search.rows[0]) && !("code" in search.rows[0]));
+  const checked=await kiosk("entree",{ref:search.rows[0].ref});
+  const checkedBody=await checked.json();
+  assert.equal(checked.status,200,JSON.stringify(checkedBody)); assert.ok(checkedBody.expires_at>Date.now());
+  const foreign=await fetch(host.route("/api/borne/sortie"),{method:"POST",headers:{"Content-Type":"application/json",Cookie:"cdi_device="+"0".repeat(64)},body:JSON.stringify({ref:search.rows[0].ref})});
+  await foreign.arrayBuffer(); assert.equal(foreign.status,403);
+  assert.equal((await kiosk("sortie",{ref:search.rows[0].ref})).status,200);
+  const expired=await kiosk("entree",{ref:"f".repeat(32)}); await expired.arrayBuffer(); assert.equal(expired.status,410);
+  await host.patch("/gestion/borne/postes",{duration:"30j",renew:true,name_search:false});
+  const disabled=await kiosk("recherche",{q:"zelie"}); await disabled.arrayBuffer(); assert.equal(disabled.status,403);
+  assert.equal((await (await fetch(host.route("/api/borne/reglages"),{headers:{Cookie:device}})).json()).name_search,false);
+  await host.patch("/gestion/borne/postes",{duration:"30j",renew:true,name_search:true});
+  // Suppression d'une classe : déplacement des élèves actifs, fiches retirées rangées dans « Anciens élèves ».
+  const classes=async()=>(await host.get("/gestion/classes")).rows;
+  const source=(await classes()).find(row=>row.name==="Classe Borne "+host.kind);
+  await host.post("/gestion/classes",{name:"Accueil "+host.kind});
+  const destination=(await classes()).find(row=>row.name==="Accueil "+host.kind);
+  await host.call("/gestion/classes/"+source.id,{method:"DELETE",expected:409});
+  assert.equal((await host.call("/gestion/classes/"+source.id,{method:"DELETE",body:{move_to:destination.id}})).payload.moved,1);
+  assert.equal((await classes()).find(row=>row.id===destination.id).total,1);
+  const pupil=(await host.post("/gestion/eleves/recherche",{q:"zelie",class:"",archived:false})).rows?.[0];
+  if(pupil) await host.call("/gestion/eleves/"+pupil.id,{method:"DELETE"});
+  await host.call("/gestion/classes/"+destination.id,{method:"DELETE",body:{}});
+  assert.ok((await classes()).some(row=>row.name==="Anciens élèves"));
   // Révocation d'un seul poste.
   await host.call("/gestion/borne/postes/"+row.id,{method:"DELETE"});
   await host.call("/gestion/borne/postes/"+row.id,{method:"DELETE",expected:404});
@@ -568,7 +603,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion et postes de borne.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, recherche par nom et suppression de classe.");
 } catch(error){
   console.error(output);
   throw error;

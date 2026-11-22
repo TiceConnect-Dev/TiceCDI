@@ -3,7 +3,7 @@ import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maint
 import { audit, auditRows } from "./audit.mjs";
 import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
 import { connectionApi, connectionSettings, ssoApi, ssoPublic } from "./connection.mjs";
-import { deviceExpiry, deviceSettings, devicesApi, touchDevice } from "./devices.mjs";
+import { deviceExpiry, deviceSettings, devicesApi, kioskLabel, searchTokens, touchDevice } from "./devices.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
@@ -402,13 +402,31 @@ async function dispatch(request, env, options) {
       const renewed=await touchDevice(m,device,clock);
       const closure=kioskClosure(clock);
       const [settings,state,gauge]=await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock)]);
-      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason},200,
+      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason,name_search:(await deviceSettings(m)).name_search},200,
         renewed ? {"Set-Cookie":cookie(request,token,Math.floor((renewed-clock)/1000),"cdi_device")} : {});
     }
     if (!device) fail(403,"Ce poste doit être activé par le personnel.");
+    if (method==="POST" && path==="/api/borne/recherche") {
+      if (!(await deviceSettings(m)).name_search) fail(403,"La recherche par nom est désactivée sur cette borne.");
+      await throttle(m,"search:"+key,40);
+      const tokens=searchTokens((await payload(request)).q,words);
+      if (!tokens.length) return json({rows:[],short:true});
+      const found=await m.list(`SELECT s.id,s.first_name,s.last_name,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
+        WHERE s.active=1 ${tokens.map(()=>"AND s.search_name LIKE ?").join(" ")} ORDER BY s.last_name,s.first_name LIMIT 7`,...tokens.map(token=>"%"+token+"%"));
+      const rows=found.slice(0,6).map(row=>({ref:random(16),label:kioskLabel(row),class_name:row.class_name,student_id:row.id}));
+      await m.batch([m.stmt("DELETE FROM kiosk_refs WHERE expires_at<=?",clock),
+        ...rows.map(row=>m.stmt("INSERT INTO kiosk_refs VALUES (?,?,?,?)",row.ref,row.student_id,key,clock+180_000))]);
+      return json({rows:rows.map(({student_id,...row})=>row),more:found.length>6});
+    }
     if (method!=="POST" || !["/api/borne/entree","/api/borne/sortie"].includes(path)) fail(404,"Action introuvable.");
     await throttle(m,"checkin:"+key,90);
     const data=await payload(request);
+    // Élève choisi dans la recherche par nom : la sélection temporaire remplace le code de la carte.
+    if (typeof data.ref==="string" && /^[a-f0-9]{32}$/.test(data.ref)) {
+      const picked=await m.one("SELECT s.code FROM kiosk_refs r JOIN students s ON s.id=r.student_id WHERE r.ref=? AND r.device=? AND r.expires_at>?",data.ref,key,clock);
+      if (!picked) fail(410,"La sélection a expiré. Recherche à nouveau ton nom.");
+      data.code=picked.code;
+    }
     const code=clean(data.code).toUpperCase();
     if (!/^CDI[0-9A-F]{10}$/.test(code)) fail(400,"Scanne ou saisis le code de ta carte CDI.");
     const person=await m.one(`SELECT s.id,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
@@ -763,9 +781,25 @@ async function dispatch(request, env, options) {
     }
     if (method === "DELETE" && itemId) {
       need("classes");
-      const deleted = await m.run("DELETE FROM classes WHERE id=? AND NOT EXISTS (SELECT 1 FROM students WHERE class_id=?)", itemId, itemId);
-      if (!changes(deleted)) fail(409, "Déplacez les élèves, y compris les fiches retirées, avant de supprimer cette classe.");
-      return json({ ok: true });
+      // Les élèves actifs vont dans la classe choisie ; les fiches retirées rejoignent « Anciens élèves » si aucune classe n’est choisie.
+      const current = await m.one(`SELECT name,(SELECT count(*) FROM students WHERE class_id=c.id AND active=1) AS active,
+        (SELECT count(*) FROM students WHERE class_id=c.id AND active=0) AS retired FROM classes c WHERE id=?`, itemId);
+      if (!current) fail(404, "Classe introuvable.");
+      const data = await payload(request).catch(() => ({}));
+      let target = typeof data.move_to === "string" && data.move_to ? data.move_to : null;
+      if (target && (target === itemId || !await m.one("SELECT id FROM classes WHERE id=?", target))) fail(400, "Choisissez une autre classe existante.");
+      if (current.active && !target) fail(409, `Choisissez la classe qui accueillera les ${current.active} élève${current.active > 1 ? "s" : ""} de ${current.name}.`);
+      const statements = [];
+      if (!target && current.retired) {
+        target = (await m.one("SELECT id FROM classes WHERE normalized=?", "anciens eleves"))?.id;
+        if (!target) { target = id(); statements.push(m.stmt("INSERT INTO classes VALUES (?,?,?)", target, "Anciens élèves", "anciens eleves")); }
+        if (target === itemId) fail(409, "La classe « Anciens élèves » conserve les fiches retirées.");
+      }
+      if (target) statements.push(m.stmt("UPDATE students SET class_id=? WHERE class_id=?", target, itemId));
+      statements.push(m.stmt("DELETE FROM classes WHERE id=?", itemId),
+        audit(m, me, "confidentialite", "Suppression d’une classe", current.name, null, { eleves_deplaces:current.active + current.retired }));
+      await m.batch(statements);
+      return json({ ok: true, moved: current.active + current.retired });
     }
   }
   const studentSearch=path==="/api/gestion/eleves/recherche" && method==="POST";

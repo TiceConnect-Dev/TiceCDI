@@ -141,16 +141,27 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         $settings = kioskSettings($db);
         $reason = closure($db, $clock, $settings);
         $settings['open'] = $reason === '';
-        return $settings + occupancy($db, $clock) + ['activated' => true, 'reason' => $reason];
+        return $settings + occupancy($db, $clock) + ['activated' => true, 'reason' => $reason, 'name_search' => deviceSettings($db)['name_search']];
     }
     if (!$device) {
         fail(403, 'Ce poste doit être activé par le personnel.');
+    }
+    if ($method === 'POST' && $path === '/api/borne/recherche') {
+        return kioskSearch($db, $key, requestData()['q'] ?? null, $clock);
     }
     if ($method !== 'POST' || !in_array($path, ['/api/borne/entree','/api/borne/sortie'], true)) {
         fail(404, 'Action introuvable.');
     }
     throttle($db, 'checkin:' . $key, 90);
     $data = requestData();
+    // Élève choisi dans la recherche par nom : la sélection temporaire remplace le code de la carte.
+    if (is_string($data['ref'] ?? null) && preg_match('/^[a-f0-9]{32}$/D', $data['ref'])) {
+        $picked = $db->one('SELECT s.code FROM kiosk_refs r JOIN students s ON s.id=r.student_id WHERE r.ref=? AND r.device=? AND r.expires_at>?', $data['ref'], $key, $clock);
+        if (!$picked) {
+            fail(410, 'La sélection a expiré. Recherche à nouveau ton nom.');
+        }
+        $data['code'] = $picked['code'];
+    }
     return $db->atomic(static function () use ($db, $path, $data): array {
         $now = clockMs();
         if ($path === '/api/borne/entree') {

@@ -68,8 +68,7 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] #kiosk-state{color:#80aae5}
   html[data-theme="dark"] .accessible-planning{background:#14151a;color:#80aae5}
   html[data-theme="dark"] :focus-visible{outline:3px solid #71b0f4}
-  html[data-theme="dark"] /* ── Sécurité du compte,html[data-theme="dark"] thème et borne (v1.4) ─────────────────────────── */
-.notice.warning{background:#2c2518;border-color:#5c4e32;color:#f0c575}
+  html[data-theme="dark"] .notice.warning{background:#2c2518;border-color:#5c4e32;color:#f0c575}
   html[data-theme="dark"] .offline-banner{background:#9c1b29}
   html[data-theme="dark"] .heat-0{background:#121621}
   html[data-theme="dark"] .heat-1{background:#16172a}
@@ -86,5 +85,11 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}
   html[data-theme="dark"] .masthead .tice-wordmark{background:#fff;padding:5px 8px;border-radius:6px}
   html[data-theme="dark"] .tice-hero-logo{background:#fff;padding:14px 18px;border-radius:10px}
+  html[data-theme="dark"] .borne-hero{background:linear-gradient(150deg,#1b2050,#141836);color:#e6e8f5}
+  html[data-theme="dark"] .borne-hero p{color:#c4c9ef}
+  html[data-theme="dark"] .borne-scan input{border-color:#3a4170}
+  html[data-theme="dark"] .borne-state[data-tone=warning]{background:#3a2a0d;color:#ffd99a}
+  html[data-theme="dark"] .borne-feedback.success,html[data-theme="dark"] .borne-status{background:#123d2a;color:#7ee0ad}
+  html[data-theme="dark"] .borne-feedback.error,html[data-theme="dark"] .borne-status[data-state=closed]{background:#4a1820;color:#ff9ba2}
   html[data-theme="dark"] :focus-visible{outline-color:#9aa6ff}
 }

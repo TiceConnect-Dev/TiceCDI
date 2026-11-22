@@ -15,7 +15,7 @@ SOURCE = ROOT / "public/cdi/cdi.css"
 TARGET = ROOT / "public/cdi/theme-dark.css"
 PREFIX = 'html[data-theme="dark"]'
 # Éléments imprimés ou lus par un scanner : toujours sur fond clair.
-KEEP_LIGHT = (".badge", ".qr-code", ".tice-wordmark", ".barcode")
+KEEP_LIGHT = (".badge", ".qr-code", ".tice-wordmark", ".barcode", ".borne")
 VARIABLES = {
     "--blue": "#8f99ff", "--ink": "#e6e8f5", "--muted": "#a6acc4", "--line": "#2d3252",
     "--canvas": "#0d1020", "--pale": "#1d2245", "--white": "#161a2d", "--green": "#5fd09a", "--red": "#ff8189",
@@ -112,7 +112,7 @@ def emit(rules, indent=""):
 
 
 def main():
-    rules = parse(SOURCE.read_text(encoding="utf-8"))
+    rules = parse(re.sub(r"/\*.*?\*/", "", SOURCE.read_text(encoding="utf-8"), flags=re.S))
     header = [
         "/* Fichier généré par scripts/build-dark-theme.py à partir de cdi.css : ne pas modifier à la main. */",
         "@media screen{",
@@ -124,6 +124,12 @@ def main():
         f"{PREFIX} img.tice-brand-icon,{PREFIX} .tice-wordmark img{{filter:none}}",
         f"{PREFIX} .masthead .tice-wordmark{{background:#fff;padding:5px 8px;border-radius:6px}}",
         f"{PREFIX} .tice-hero-logo{{background:#fff;padding:14px 18px;border-radius:10px}}",
+        f"{PREFIX} .borne-hero{{background:linear-gradient(150deg,#1b2050,#141836);color:#e6e8f5}}",
+        f"{PREFIX} .borne-hero p{{color:#c4c9ef}}",
+        f"{PREFIX} .borne-scan input{{border-color:#3a4170}}",
+        f"{PREFIX} .borne-state[data-tone=warning]{{background:#3a2a0d;color:#ffd99a}}",
+        f"{PREFIX} .borne-feedback.success,{PREFIX} .borne-status{{background:#123d2a;color:#7ee0ad}}",
+        f"{PREFIX} .borne-feedback.error,{PREFIX} .borne-status[data-state=closed]{{background:#4a1820;color:#ff9ba2}}",
         f"{PREFIX} :focus-visible{{outline-color:#9aa6ff}}",
     ]
     TARGET.write_text("\n".join(header + emit(rules, "  ") + ["  " + m for m in manual] + ["}", ""]), encoding="utf-8")

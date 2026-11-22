@@ -15,8 +15,9 @@ function schoolYearEnd(int $clock): int
 
 function deviceSettings(Store $db): array
 {
-    $row = $db->one('SELECT duration,renew FROM kiosk_device_settings WHERE id=1');
-    return ['duration' => $row['duration'] ?? '30j', 'renew' => $row ? (int) $row['renew'] === 1 : true];
+    $row = $db->one('SELECT duration,renew,name_search FROM kiosk_device_settings WHERE id=1');
+    return ['duration' => $row['duration'] ?? '30j', 'renew' => $row ? (int) $row['renew'] === 1 : true,
+        'name_search' => $row ? (int) $row['name_search'] === 1 : true];
 }
 
 function deviceExpiry(array $settings, int $clock): int
@@ -65,9 +66,12 @@ function devicesResource(Store $db, string $path, string $method, array $me, int
             fail(400, 'Choisissez une durée d’activation valide.');
         }
         $before = deviceSettings($db);
-        $db->run('INSERT INTO kiosk_device_settings (id,duration,renew) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET duration=excluded.duration,renew=excluded.renew',
-            $data['duration'], (int) $data['renew']);
-        audit($db, $me, 'confidentialite', 'Modification de la durée d’activation des postes', 'Borne', $before, ['duration' => $data['duration'], 'renew' => $data['renew']]);
+        $nameSearch = is_bool($data['name_search'] ?? null) ? $data['name_search'] : $before['name_search'];
+        $db->run('INSERT INTO kiosk_device_settings (id,duration,renew,name_search) VALUES (1,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET duration=excluded.duration,renew=excluded.renew,name_search=excluded.name_search',
+            $data['duration'], (int) $data['renew'], (int) $nameSearch);
+        audit($db, $me, 'confidentialite', 'Modification des réglages des postes de borne', 'Borne', $before,
+            ['duration' => $data['duration'], 'renew' => $data['renew'], 'name_search' => $nameSearch]);
         return deviceSettings($db);
     }
     if (preg_match('~^/api/gestion/borne/postes/([a-f0-9]{16})$~D', $path, $match) && $method === 'DELETE') {
@@ -80,4 +84,29 @@ function devicesResource(Store $db, string $path, string $method, array $me, int
         return ['ok' => true];
     }
     fail(404, 'Action introuvable.');
+}
+
+/** Recherche par nom sur la borne : au plus 6 résultats (prénom et initiale du nom), sélection valable 3 minutes. */
+function kioskSearch(Store $db, string $device, mixed $query, int $clock): array
+{
+    if (!deviceSettings($db)['name_search']) {
+        fail(403, 'La recherche par nom est désactivée sur cette borne.');
+    }
+    throttle($db, 'search:' . $device, 40);
+    $tokens = array_slice(array_values(array_filter(explode(' ', words($query)), static fn ($token) => mb_strlen($token, 'UTF-8') >= 2)), 0, 4);
+    if (mb_strlen(implode('', $tokens), 'UTF-8') < 3) {
+        return ['rows' => [], 'short' => true];
+    }
+    $found = $db->all('SELECT s.id,s.first_name,s.last_name,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id WHERE s.active=1 '
+        . str_repeat('AND s.search_name LIKE ? ', count($tokens)) . 'ORDER BY s.last_name,s.first_name LIMIT 7',
+        ...array_map(static fn ($token) => '%' . $token . '%', $tokens));
+    $db->run('DELETE FROM kiosk_refs WHERE expires_at<=?', $clock);
+    $rows = [];
+    foreach (array_slice($found, 0, 6) as $row) {
+        $ref = bin2hex(random_bytes(16));
+        $db->run('INSERT INTO kiosk_refs VALUES (?,?,?,?)', $ref, $row['id'], $device, $clock + 180_000);
+        $initial = mb_strtoupper(mb_substr(trim($row['last_name']), 0, 1, 'UTF-8'), 'UTF-8');
+        $rows[] = ['ref' => $ref, 'label' => $row['first_name'] . ' ' . $initial . '.', 'class_name' => $row['class_name']];
+    }
+    return ['rows' => $rows, 'more' => count($found) > 6];
 }

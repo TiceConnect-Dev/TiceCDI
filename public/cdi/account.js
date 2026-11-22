@@ -234,8 +234,9 @@ export async function renderDevices(target, { section, toast, me, confirmDialog 
       ${me.admin ? `<form id="device-settings" class="device-settings">
         <label class="field"><span>Durée d’activation</span><select name="duration">${Object.entries(durationNames).map(([value, name]) => `<option value="${value}" ${value === settings.duration ? "selected" : ""}>${name}</option>`).join("")}</select></label>
         <label class="check-line"><input type="checkbox" name="renew" ${settings.renew ? "checked" : ""}> Renouveler automatiquement tant que la borne est utilisée</label>
+        <label class="check-line"><input type="checkbox" name="name_search" ${settings.name_search ? "checked" : ""}> Recherche par nom pour les élèves sans carte</label>
         <button class="btn secondary" type="submit">${icon("check")} Enregistrer</button></form>
-        <p class="subtle">La nouvelle durée s’applique aux prochaines activations et aux renouvellements. Une borne ne donne accès qu’au pointage.</p>` : ""}
+        <p class="subtle">La nouvelle durée s’applique aux prochaines activations et aux renouvellements. Une borne ne donne accès qu’au pointage. La recherche par nom n’affiche que le prénom, l’initiale du nom et la classe (6 résultats au plus, 3 lettres minimum).</p>` : ""}
     </section>
     <section class="panel table-panel"><div class="table-top"><h2>${me.admin ? "Postes activés" : "Mes postes activés"}</h2>${pill(rows.length + " poste" + (rows.length > 1 ? "s" : ""))}
       ${rows.length ? button(me.admin ? "Révoquer tous les postes" : "Révoquer mes postes", "lock", 'data-action="revoke-devices"', "danger") : ""}</div>
@@ -248,7 +249,7 @@ export async function renderDevices(target, { section, toast, me, confirmDialog 
     event.preventDefault();
     const form = event.currentTarget;
     try {
-      await gestion("borne/postes", "PATCH", { duration:form.elements.duration.value, renew:form.elements.renew.checked });
+      await gestion("borne/postes", "PATCH", { duration:form.elements.duration.value, renew:form.elements.renew.checked, name_search:form.elements.name_search.checked });
       toast("Durée d’activation enregistrée.");
       await reload();
     } catch (error) { toast(error.message, "error"); }

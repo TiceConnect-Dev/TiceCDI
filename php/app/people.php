@@ -156,10 +156,42 @@ function classesResource(Store $db, string $method, ?string $id, array $me): arr
     }
     need($me, 'classes');
     if ($method === 'DELETE' && $id !== null) {
-        if (!$db->run('DELETE FROM classes WHERE id=? AND NOT EXISTS (SELECT 1 FROM students WHERE class_id=?)', $id, $id)) {
-            fail(409, 'Déplacez les élèves, y compris les fiches retirées, avant de supprimer cette classe.');
+        // Les élèves actifs vont dans la classe choisie ; les fiches retirées rejoignent « Anciens élèves » si aucune classe n’est choisie.
+        $current = $db->one('SELECT name,(SELECT count(*) FROM students WHERE class_id=c.id AND active=1) AS active,
+            (SELECT count(*) FROM students WHERE class_id=c.id AND active=0) AS retired FROM classes c WHERE id=?', $id);
+        if (!$current) {
+            fail(404, 'Classe introuvable.');
         }
-        return ['ok' => true];
+        try {
+            $data = requestData();
+        } catch (Throwable) {
+            $data = [];
+        }
+        $target = is_string($data['move_to'] ?? null) && $data['move_to'] !== '' ? $data['move_to'] : null;
+        if ($target !== null && ($target === $id || !$db->one('SELECT id FROM classes WHERE id=?', $target))) {
+            fail(400, 'Choisissez une autre classe existante.');
+        }
+        $active = (int) $current['active'];
+        $retired = (int) $current['retired'];
+        if ($active > 0 && $target === null) {
+            fail(409, 'Choisissez la classe qui accueillera les ' . $active . ' élève' . ($active > 1 ? 's' : '') . ' de ' . $current['name'] . '.');
+        }
+        if ($target === null && $retired > 0) {
+            $target = $db->one("SELECT id FROM classes WHERE normalized='anciens eleves'")['id'] ?? null;
+            if ($target === null) {
+                $target = uid();
+                $db->run("INSERT INTO classes VALUES (?,'Anciens élèves','anciens eleves')", $target);
+            }
+            if ($target === $id) {
+                fail(409, 'La classe « Anciens élèves » conserve les fiches retirées.');
+            }
+        }
+        if ($target !== null) {
+            $db->run('UPDATE students SET class_id=? WHERE class_id=?', $target, $id);
+        }
+        $db->run('DELETE FROM classes WHERE id=?', $id);
+        audit($db, $me, 'confidentialite', 'Suppression d’une classe', $current['name'], null, ['eleves_deplaces' => $active + $retired]);
+        return ['ok' => true, 'moved' => $active + $retired];
     }
     if (($method === 'POST' && $id === null) || ($method === 'PATCH' && $id !== null)) {
         $name = className(requestData()['name'] ?? null);
