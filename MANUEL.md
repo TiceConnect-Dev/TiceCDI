@@ -32,6 +32,10 @@ Sur la borne, scannez la carte CDI ou saisissez son code. L’élève choisit **
 
 En HTTPS, la borne peut être installée comme une application : après l’activation du poste, choisissez **Installer la borne** (Chrome, Edge) ou le menu du navigateur **Installer l’application**. Elle s’ouvre alors en plein écran sur la page de pointage, garde l’écran allumé et affiche un bandeau si le réseau tombe. Si le serveur redémarre, une page **Connexion au serveur perdue** s’affiche et la borne revient seule dès que le service répond. Elle se recharge chaque nuit vers 4 h pour appliquer les mises à jour.
 
+### Scanner une carte avec la caméra
+
+Sur un poste sans douchette, **Scanner avec la caméra** ouvre l’image de la caméra : l’élève présente le code-barres de sa carte, bien à plat. Une fois la carte lue, il choisit **Entrée** ou **Sortie**. La caméra exige HTTPS et l’autorisation du navigateur. Aucune image n’est enregistrée ni envoyée au serveur.
+
 ### Sécurité du compte
 
 Chaque agent dispose de la rubrique **Sécurité du compte** :
@@ -42,6 +46,13 @@ Chaque agent dispose de la rubrique **Sécurité du compte** :
 4. **Mes sessions ouvertes** liste les navigateurs connectés à votre compte : fermez une session inconnue ou **Fermez les autres sessions**.
 
 Un administrateur voit les sessions de tous les comptes et peut les fermer. Si un agent perd son téléphone et ses codes, l’administrateur choisit **Réinitialiser la 2FA** dans **Comptes et droits** : l’agent se reconnecte avec son mot de passe puis réactive la double authentification.
+
+### Connexion et sécurité (administrateurs)
+
+- **Double authentification** : facultative, obligatoire pour les administrateurs ou pour tous. Un compte concerné qui ne l’a pas encore ne voit que **Sécurité du compte** jusqu’à son activation.
+- **Déconnexion après inactivité** : 60 minutes par défaut (0 pour désactiver). Une page laissée ouverte qui s’actualise seule ne prolonge pas la session.
+- **Seuil d’alerte** : au-delà de ce nombre d’échecs de connexion en 24 heures pour un même compte, un encart prévient les administrateurs.
+- **Connexion par l’ENT** : choisissez CAS (adresse du serveur CAS, par exemple `https://cas.ent.exemple.fr/cas`) ou OpenID Connect (émetteur, identifiant et secret client, champ portant l’identifiant). Déclarez auprès de l’ENT l’**adresse de retour** affichée sur la page, puis utilisez **Tester les réglages enregistrés**. L’identifiant de l’ENT doit être identique à l’identifiant du compte TiceCDI : créez les comptes avec les identifiants ENT du personnel.
 
 Le bouton lune/soleil de l’en-tête bascule entre thème clair et sombre. Sans choix, TiceCDI suit le réglage du système.
 
@@ -57,11 +68,15 @@ La borne, les formulaires et le planning proposent des libellés explicites, un 
 
 ## 4. Import et droits individuels
 
+**Pronote** : exportez la liste des élèves en CSV (colonnes Nom, Prénom et Classe, ou Élève au format NOM Prénom). **SIECLE** : importez directement `ElevesSansAdresses.xml` depuis l’export « Base élèves » ; la division devient la classe, les élèves sortis sont ignorés et l’identifiant SIECLE permet de suivre un élève qui change de classe à la rentrée. Le fichier XML est lu dans le navigateur : seuls le nom, le prénom, la classe et l’identifiant sont envoyés au serveur.
+
 Préparez un CSV avec `Nom`, `Prénom`, `Classe` et, si nécessaire, `Identifiant interne` stable pour les homonymes et les réimports. Le navigateur extrait ces champs, ignore les autres colonnes et transmet les seules valeurs retenues. Le serveur ne reçoit pas le fichier brut. Pour un passage d’année, l’identifiant interne doit être renseigné de manière stable. Conservez les documents d’origine selon les règles de votre établissement.
 
 Dans **Dossiers individuels**, recherchez l’élève puis ouvrez son dossier. La vue distingue l’annuaire, les passages conservés, les appels internes, les exclusions et les éventuelles archives. Rectifiez les données d’identité ou utilisez l’export ciblé selon vos droits. L’effacement demande une confirmation explicite. Il supprime les données nominatives associées, invalide les anciennes copies locales de sauvegarde et enregistre un identifiant technique dans l’état de reprise pour empêcher une réapparition. Les agrégats de fréquentation sont conservés.
 
 ## 5. Purge, statistiques et journal
+
+Les **Statistiques** affichent aussi la moyenne par jour de la semaine et l’affluence par jour et par heure (calculée sur les passages encore conservés ; les cases de moins de cinq passages sont masquées). **Rapport PDF** produit une synthèse prête à joindre au rapport d’activité.
 
 Le réglage **0 jour supplémentaire** conserve les passages jusqu’à la fin de leur journée (heure de Paris). Un créneau encore actif est conservé jusqu’à son échéance. Les fiches d’appel, les archives nominatives des années closes et les exclusions échues suivent aussi la purge configurée. L’annuaire des élèves en activité sert aux pointages et se gère séparément.
 

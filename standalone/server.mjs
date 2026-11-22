@@ -48,6 +48,7 @@ const assets = new Map([
   ["privacy.js", "text/javascript; charset=utf-8"],
   ["account.js", "text/javascript; charset=utf-8"],
   ["qr.js", "text/javascript; charset=utf-8"],
+  ["scan.js", "text/javascript; charset=utf-8"],
   ["offline.js", "text/javascript; charset=utf-8"],
   ["theme-dark.css", "text/css; charset=utf-8"],
   ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
@@ -79,10 +80,12 @@ async function requestHandler(request, client) {
 
 const trustProxy = process.env.CDI_TRUST_PROXY === "1";
 const allowedMethods = new Set(["GET", "HEAD", "POST", "PATCH", "DELETE"]);
-const permissions = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)";
+const permissions = "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)";
 // En-têtes de sécurité ajoutés à toutes les réponses (pages, API, ressources et erreurs).
 function securityHeaders(headers, secure) {
   const result = Object.fromEntries(headers);
+  const cookies = headers.getSetCookie?.() ?? [];
+  if (cookies.length) result["set-cookie"] = cookies;
   const defaults = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",

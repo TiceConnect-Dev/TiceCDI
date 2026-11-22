@@ -104,7 +104,12 @@ function privateStatistics(Store $db, string $from, string $to, int $clock): arr
         $daily[] = ['day' => $row['day'], 'visits' => $row['visits']];
     }
     $average = array_sum(array_column($rows, 'observed_ms')) / $visits / 60000;
-    return compact('from','to','visits','average','daily') + ['hidden' => false, 'threshold' => 5];
+    // Répartition jour × heure (heure de Paris) des passages conservés ; cases de moins de 5 passages masquées.
+    $hours = array_map(static fn ($row) => ['weekday' => (int) $row['weekday'] === 0 ? 7 : (int) $row['weekday'], 'hour' => (int) $row['hour'],
+        'visits' => $row['visits'] >= 5 ? $row['visits'] : null], $db->all("SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,
+        CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits FROM local_visits
+        WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour", $from, $to));
+    return compact('from','to','visits','average','daily','hours') + ['hidden' => false, 'threshold' => 5];
 }
 
 function studentFile(Store $db, string $id): array

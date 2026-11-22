@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, readdirSync, copyFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -341,6 +343,132 @@ async function accountSecurity(host) {
   assert.equal((await host.get("/gestion/securite",fresh)).mfa.enabled,false);
 }
 
+// Fournisseur d'identité factice (CAS et OpenID Connect) pour tester la connexion ENT.
+async function identityProvider() {
+  const port=await freePort(), base="http://127.0.0.1:"+port;
+  const codes=new Map();
+  const b64=(value)=>Buffer.from(JSON.stringify(value)).toString("base64url");
+  const server=createHttpServer((req,res)=>{
+    const url=new URL(req.url,base);
+    if(url.pathname==="/cas/serviceValidate") {
+      const ok=url.searchParams.get("ticket")==="ST-1" && url.searchParams.get("service").includes("state=");
+      res.end(ok?`<cas:serviceResponse xmlns:cas="http://www.yale.edu/tp/cas"><cas:authenticationSuccess><cas:user>SSO.User</cas:user></cas:authenticationSuccess></cas:serviceResponse>`
+        :`<cas:serviceResponse xmlns:cas="http://www.yale.edu/tp/cas"><cas:authenticationFailure code="INVALID_TICKET">non</cas:authenticationFailure></cas:serviceResponse>`);
+      return;
+    }
+    if(url.pathname==="/oidc/.well-known/openid-configuration") {
+      res.setHeader("Content-Type","application/json");
+      res.end(JSON.stringify({issuer:base+"/oidc",authorization_endpoint:base+"/oidc/authorize",token_endpoint:base+"/oidc/token"}));
+      return;
+    }
+    if(url.pathname==="/oidc/token" && req.method==="POST") {
+      let body=""; req.on("data",c=>body+=c); req.on("end",()=>{
+        const form=new URLSearchParams(body), saved=codes.get(form.get("code"));
+        const challenge=createHash("sha256").update(form.get("code_verifier")||"").digest("base64url");
+        res.setHeader("Content-Type","application/json");
+        if(!saved || saved.challenge!==challenge || form.get("client_id")!=="tice" || form.get("client_secret")!=="secret-oidc") { res.statusCode=400; res.end("{}"); return; }
+        res.end(JSON.stringify({access_token:"a",id_token:b64({alg:"none"})+"."+b64({iss:base+"/oidc",aud:"tice",exp:Math.floor(Date.now()/1000)+300,nonce:saved.nonce,preferred_username:"sso.user"})+".sig"}));
+      });
+      return;
+    }
+    res.statusCode=404; res.end();
+  }).listen(port,"127.0.0.1");
+  await once(server,"listening");
+  return {base,codes,close:()=>server.close()};
+}
+
+// Réglages de connexion : 2FA exigée, inactivité, alertes, connexion ENT CAS et OpenID Connect, places libres et affluence.
+async function connectionSettingsTest(host,idp) {
+  const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
+  const settings=await host.get("/gestion/connexion");
+  assert.equal(settings.idle_minutes,60); assert.equal(settings.has_secret,false); assert.ok(settings.callback.includes("sso"));
+  // Déconnexion après inactivité ; les actualisations en arrière-plan ne prolongent pas la session.
+  const user="idle."+host.kind, userPassword="Mot de passe inactivite 2026";
+  await host.post("/gestion/comptes",{username:user,name:"Compte inactif",password:userPassword,admin:false,rights:["presence"]});
+  const session=await host.login(user,userPassword);
+  const key=createHash("sha256").update(session.split("=")[1]).digest("hex");
+  db.prepare("UPDATE sessions SET last_seen=? WHERE token=?").run(Date.now()-90_000,key);
+  const background=await fetch(host.route("/api/gestion/presences"),{headers:{Cookie:session,"X-CDI-Background":"1"}});
+  await background.arrayBuffer(); assert.equal(background.status,200);
+  assert.ok(db.prepare("SELECT last_seen FROM sessions WHERE token=?").all(key)[0].last_seen<Date.now()-80_000);
+  db.prepare("UPDATE sessions SET last_seen=? WHERE token=?").run(Date.now()-61*60_000,key);
+  await host.get("/gestion/presences",session,401);
+  // La session reste inutilisable même après un retour d'activité (l'édition PHP la laisse expirer en base).
+  db.prepare("UPDATE sessions SET last_seen=? WHERE token=?").run(Date.now()-61*60_000,key);
+  await host.get("/gestion/presences",session,401);
+  // Alertes après des échecs répétés.
+  for(let i=0;i<3;i++) await host.call("/auth/login",{method:"POST",body:{username:user,password:"faux mot de passe"},session:"",expected:401});
+  const base={mfa_policy:"none",idle_minutes:30,alert_threshold:3,sso_mode:"",sso_label:"ENT",cas_url:"",oidc_issuer:"",oidc_client_id:"",oidc_claim:"preferred_username"};
+  await host.patch("/gestion/connexion",{...base,idle_minutes:900},host.admin,400);
+  await host.patch("/gestion/connexion",{...base,sso_mode:"cas",cas_url:"http://exemple.fr/cas"},host.admin,400);
+  await host.patch("/gestion/connexion",base);
+  assert.ok((await host.get("/gestion/securite/alertes")).rows.some(row=>row.target===user && row.count>=3));
+  // Double authentification exigée pour les administrateurs.
+  await host.patch("/gestion/connexion",{...base,mfa_policy:"admins"});
+  assert.equal((await host.get("/auth/status")).user.mfa_missing,true);
+  await host.get("/gestion/classes",host.admin,403);
+  await host.get("/gestion/securite");
+  const vie=await host.login(user,userPassword);
+  await host.get("/gestion/presences",vie);
+  db.prepare("UPDATE security_settings SET mfa_policy='none' WHERE id=1").run();
+  // Connexion ENT par CAS.
+  await host.post("/gestion/comptes",{username:"sso.user",name:"Agent ENT",password:"Mot de passe ENT 2026 test",admin:false,rights:["planning"]});
+  await host.patch("/gestion/connexion",{...base,sso_mode:"cas",sso_label:"Mon ENT",cas_url:idp.base+"/cas"});
+  assert.deepEqual((await host.get("/auth/status","")).sso,{enabled:true,label:"Mon ENT"});
+  const start=async()=>{
+    const response=await fetch(host.route("/api/auth/sso/start"),{redirect:"manual"});
+    await response.arrayBuffer();
+    assert.equal(response.status,303);
+    return {location:new URL(response.headers.get("location")),cookie:response.headers.getSetCookie().find(c=>c.startsWith("cdi_sso=")).split(";")[0]};
+  };
+  const back=async(url,cookie)=>{
+    const response=await fetch(url,{redirect:"manual",headers:{Cookie:cookie}});
+    await response.arrayBuffer();
+    assert.equal(response.status,303);
+    return {location:response.headers.get("location"),cookies:response.headers.getSetCookie().map(c=>c.split(";")[0]).filter(c=>!c.endsWith("="))};
+  };
+  let step=await start();
+  assert.ok(step.location.href.startsWith(idp.base+"/cas/login?service="));
+  const service=step.location.searchParams.get("service");
+  let done=await back(service+"&ticket=ST-1",step.cookie);
+  assert.match(done.location,/(\/gestion|route=%2Fgestion)$/);
+  const ssoSession=done.cookies.find(c=>c.startsWith("cdi_session="));
+  assert.equal((await host.get("/auth/status",ssoSession)).user.username,"sso.user");
+  step=await start();
+  done=await back(step.location.searchParams.get("service")+"&ticket=ST-1","");
+  assert.ok(done.location.includes("sso=echec"));
+  step=await start();
+  done=await back(step.location.searchParams.get("service")+"&ticket=ST-2",step.cookie);
+  assert.ok(done.location.includes("sso=echec"));
+  // Connexion ENT par OpenID Connect avec PKCE, puis étape de double authentification.
+  await host.patch("/gestion/connexion",{...base,sso_mode:"oidc",oidc_issuer:idp.base+"/oidc",oidc_client_id:"tice",oidc_client_secret:"secret-oidc"});
+  assert.equal((await host.get("/gestion/connexion")).has_secret,true);
+  const {secret}=await host.post("/gestion/securite/totp",{password:"Mot de passe ENT 2026 test"},ssoSession);
+  await host.post("/gestion/securite/totp/activation",{code:await totp(secret,Math.floor(Date.now()/30000))},ssoSession);
+  step=await start();
+  assert.ok(step.location.href.startsWith(idp.base+"/oidc/authorize?"));
+  const query=step.location.searchParams;
+  assert.equal(query.get("code_challenge_method"),"S256");
+  idp.codes.set("C-"+host.kind,{challenge:query.get("code_challenge"),nonce:query.get("nonce")});
+  done=await back(query.get("redirect_uri")+(query.get("redirect_uri").includes("?")?"&":"?")+"code=C-"+host.kind+"&state="+query.get("state"),step.cookie);
+  assert.ok(done.location.includes("etape=code"),done.location);
+  const challenge=done.cookies.find(c=>c.startsWith("cdi_challenge="));
+  await host.call("/auth/challenge",{method:"POST",body:{code:"000000"},session:challenge,expected:401});
+  const finish=await host.call("/auth/challenge",{method:"POST",body:{code:await totp(secret,Math.floor(Date.now()/30000)+1)},session:challenge});
+  assert.equal((await host.get("/auth/status",finish.cookies.find(c=>c.startsWith("cdi_session=")))).user.username,"sso.user");
+  const journal=(await host.get("/gestion/journal?area=securite")).rows.map(row=>row.action);
+  assert.ok(journal.includes("Échec de connexion ENT") && journal.includes("Modification des réglages de connexion"));
+  await host.patch("/gestion/connexion",{...base,alert_threshold:5});
+  // Places libres en temps réel et affluence par heure.
+  const planning=await (await fetch(host.route("/api/planning?week="+weekMonday()))).json();
+  if(planning.occupancy) assert.ok("occupied" in planning.occupancy && "places" in planning.occupancy);
+  db.close();
+}
+function weekMonday() {
+  const now=new Date(); const day=(now.getUTCDay()+6)%7; now.setUTCDate(now.getUTCDate()-day);
+  return now.toISOString().slice(0,10);
+}
+
 // Sécurité : en-têtes communs, méthodes refusées et conversion des anciennes empreintes de mot de passe.
 async function security(host) {
   for(const path of ["/","/api/auth/status","/cdi/cdi.css"]) {
@@ -351,7 +479,7 @@ async function security(host) {
       if(host.kind.startsWith("php") && path==="/cdi/cdi.css") continue; // Servi directement par le serveur web (règles .htaccess).
       assert.equal(response.headers.get(name),value,host.kind+" "+path+" "+name);
     }
-    assert.ok(response.headers.get("permissions-policy")?.includes("camera=()") || path==="/cdi/cdi.css" && host.kind.startsWith("php"));
+    assert.ok(response.headers.get("permissions-policy")?.includes("camera=(self)") || path==="/cdi/cdi.css" && host.kind.startsWith("php"));
     assert.ok(!response.headers.get("x-powered-by"),host.kind+" X-Powered-By");
   }
   const refused=await fetch(host.route("/api/auth/status"),{method:"PUT"});
@@ -391,6 +519,8 @@ try {
   const n=await exercise(node), p=await exercise(phpHost);
   await security(node); await security(phpHost);
   await accountSecurity(node); await accountSecurity(phpHost);
+  const idp=await identityProvider();
+  try { await connectionSettingsTest(node,idp); await connectionSettingsTest(phpHost,idp); } finally { idp.close(); }
   assert.ok((await node.post("/gestion/sauvegarde",{backup:p.old,phrase:secret},n.restore)).token);
   assert.ok((await phpHost.post("/gestion/sauvegarde",{backup:n.old,phrase:secret},p.restore)).token);
   const recoveryHost=await serve("php-reprise");
@@ -400,7 +530,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification et sessions.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT et règles de connexion.");
 } catch(error){
   console.error(output);
   throw error;

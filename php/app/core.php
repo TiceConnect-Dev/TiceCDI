@@ -274,23 +274,36 @@ function authenticate(Store $db, int $clock): ?array
     $token = sessionToken();
     $key = $token === null ? null : hash('sha256', $token);
     $row = $key === null ? null : $db->one(
-        'SELECT a.*,t.last_seen AS session_seen FROM sessions t JOIN accounts a ON a.id=t.account_id WHERE t.token=? AND t.expires_at>?',
+        'SELECT a.*,t.last_seen AS session_seen,s.idle_minutes,s.mfa_policy,
+         EXISTS(SELECT 1 FROM account_mfa f WHERE f.account_id=a.id AND f.secret IS NOT NULL) AS has_mfa
+         FROM sessions t JOIN accounts a ON a.id=t.account_id LEFT JOIN security_settings s ON s.id=1
+         WHERE t.token=? AND t.expires_at>?',
         $key, $clock
     );
-    if ($row && (int) $row['session_seen'] < $clock - 60_000) {
-        // Dernière activité mise à jour au plus une fois par minute.
+    if (!$row) {
+        return null;
+    }
+    // Déconnexion après inactivité : les actualisations automatiques (X-CDI-Background) ne comptent pas comme activité.
+    $idle = (int) ($row['idle_minutes'] ?? 0);
+    if ($idle > 0 && (int) $row['session_seen'] > 0 && (int) $row['session_seen'] < $clock - $idle * 60_000) {
+        $db->run('DELETE FROM sessions WHERE token=?', $key);
+        return null;
+    }
+    if (($_SERVER['HTTP_X_CDI_BACKGROUND'] ?? '') !== '1' && (int) $row['session_seen'] < $clock - 60_000) {
         $db->run('UPDATE sessions SET last_seen=? WHERE token=?', $clock, $key);
     }
-    return $row ? publicAccount($row) : null;
+    $mfa = (bool) $row['has_mfa'];
+    $policy = $row['mfa_policy'] ?? 'none';
+    return publicAccount($row) + ['mfa' => $mfa, 'mfa_missing' => !$mfa && ($policy === 'all' || ($policy === 'admins' && (int) $row['admin'] === 1))];
 }
 
-function cookie(string $token, int $expires, string $name = "cdi_session"): void
+function cookie(string $token, int $expires, string $name = "cdi_session", string $sameSite = 'Strict'): void
 {
     $secure = isHttps();
     $prefix = rtrim(str_replace('\\', '/', dirname(entryPath())), '/');
     setcookie($name, $token, [
         'expires' => $expires, 'path' => ($prefix === '.' ? '' : $prefix) . '/',
-        'secure' => $secure, 'httponly' => true, 'samesite' => 'Strict',
+        'secure' => $secure, 'httponly' => true, 'samesite' => $sameSite,
     ]);
 }
 
@@ -379,7 +392,7 @@ function securityHeaders(): void
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: SAMEORIGIN');
     header('Referrer-Policy: same-origin');
-    header('Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)');
+    header('Permissions-Policy: accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)');
     header('Cross-Origin-Opener-Policy: same-origin');
     header('Cross-Origin-Resource-Policy: same-origin');
     header('X-Robots-Tag: noindex, nofollow');

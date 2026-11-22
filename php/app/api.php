@@ -25,7 +25,8 @@ function authResource(Store $db, string $path, string $method, int $clock, strin
         if ($setup) {
             ensureSetupKey($dataDir);
         }
-        return ['user' => authenticate($db, $clock), 'setup' => $setup, 'keyRequired' => true, 'demoAllowed' => false];
+        return ['user' => authenticate($db, $clock), 'setup' => $setup, 'keyRequired' => true, 'demoAllowed' => false,
+            'sso' => ssoPublic(connectionSettings($db))];
     }
     if ($path === '/api/auth/setup' && $method === 'POST') {
         throttle($db, "setup:$ip", 15, 10);
@@ -85,6 +86,12 @@ function authResource(Store $db, string $path, string $method, int $clock, strin
             return startLogin($db, $account['id'], $clock);
         });
     }
+    if (str_starts_with($path, '/api/auth/sso/')) {
+        ssoResource($db, $path, $method, $clock);
+    }
+    if ($path === '/api/auth/challenge' && $method === 'POST') {
+        return challengeLogin($db, $clock);
+    }
     if ($path === '/api/auth/logout' && $method === 'POST') {
         $token = sessionToken();
         if ($token !== null) {
@@ -111,6 +118,8 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
             return array_intersect_key($slot, array_flip(['day','start_min','end_min'])) +
                 ['kind' => $closed ? 'fermeture' : 'reservation', 'title' => $closed ? 'Fermé' : 'Réservé', 'class_name' => null];
         }, $planning['rows']);
+        // Occupation en temps réel pour l’écran public : uniquement des nombres agrégés.
+        $planning['occupancy'] = occupancy($db, $clock);
         return $planning;
     }
     if (!str_starts_with($path, '/api/borne/')) {
@@ -157,6 +166,13 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     $me = authenticate($db, $clock);
     if (!$me) {
         fail(401, 'Connectez-vous pour accéder à cet espace.');
+    }
+    if ($me['mfa_missing'] && !str_starts_with($path, '/api/gestion/securite')) {
+        fail(403, 'Votre établissement exige la double authentification : activez-la dans « Sécurité du compte ».');
+    }
+    $configured = connectionResource($db, $path, $method, $me, $clock);
+    if ($configured !== null) {
+        return $configured;
     }
     $secured = securityResource($db, $path, $method, $me, $clock);
     if ($secured !== null) {

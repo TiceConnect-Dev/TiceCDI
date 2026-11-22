@@ -248,7 +248,7 @@ export async function renderPlanning(target, context) {
 
 export function renderScreen(app) {
   app.innerHTML=`<main id="main" class="display-page"><header class="display-head">
-    <div>${brand()}<h1>Planning du CDI</h1><p id="display-date"></p></div>
+    <div>${brand()}<h1>Planning du CDI</h1><p id="display-date"></p><p class="display-gauge" id="display-occupancy" role="status" hidden></p></div>
     <div class="display-tools"><time id="display-clock"></time><div class="button-row">
       ${button("Aujourd’hui","calendar",'data-screen="day" aria-pressed="false"')}
       ${button("Vue semaine","grid",'data-screen="week" aria-pressed="true"')}
@@ -282,6 +282,12 @@ export function renderScreen(app) {
     try {
       data=await api("/planning?week="+weekStart(today()));
       draw();
+      // Places libres en temps réel (nombres agrégés uniquement).
+      const seats=$("#display-occupancy",app), live=data.occupancy;
+      seats.hidden=!live;
+      if(live) seats.textContent=live.capacity===null
+        ? `${live.occupied} élève${live.occupied>1?"s":""} au CDI`
+        : live.places===0 ? `CDI complet · ${live.capacity} places` : `${live.places} place${live.places>1?"s":""} libre${live.places>1?"s":""} sur ${live.capacity}`;
       warning.innerHTML="";
     } catch(error) {target.replaceChildren();lastGrid="";warning.innerHTML=notice(error.message,"error");}
     finally{pending=false;}

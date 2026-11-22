@@ -2,8 +2,10 @@ import { renderPrivacy, renderNotice, renderDossier } from "./privacy.js";
 import { renderBackup, renderGroups, renderJournal, renderSessions, renderYears, startCall } from "./school.js";
 import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
+import { siecleRows } from "./shared.js";
 import { routePath, urlFor, brand, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
-import { renderSecurity } from "./account.js";
+import { renderConnection, renderSecurity, securityAlerts } from "./account.js";
+import { startScanner } from "./scan.js";
 
 const app = document.querySelector("#app");
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -53,6 +55,7 @@ function kiosk() {
           <div class="button-row"><button class="btn primary" id="entry-submit" type="submit" name="direction" value="entree">Entrée</button>
             <button class="btn secondary" type="submit" name="direction" value="sortie">Sortie</button>
             <button type="button" class="btn secondary" id="kiosk-fullscreen">Plein écran</button>
+            <button type="button" class="btn secondary" id="kiosk-camera" hidden>${icon("scan")}Scanner avec la caméra</button>
             <button type="button" class="btn secondary" id="kiosk-install" hidden>${icon("download")}Installer la borne</button></div>
         </form><div id="entry-message" role="status" aria-live="polite" aria-atomic="true"></div></div>
     </section></main>${footer}</div>`;
@@ -119,6 +122,7 @@ function kiosk() {
   refresh();
   setInterval(refresh,5000);
   kioskApp();
+  kioskCamera(show);
 }
 
 // Borne en application (PWA) : installation, écran toujours allumé, reconnexion et mise à jour automatiques.
@@ -129,6 +133,38 @@ addEventListener("beforeinstallprompt",event=>{
   const control=$("#kiosk-install");
   if(control) control.hidden=false;
 });
+function kioskCamera(show) {
+  const control=$("#kiosk-camera");
+  if(!navigator.mediaDevices?.getUserMedia || !isSecureContext) return;
+  control.hidden=false;
+  control.addEventListener("click",async()=>{
+    const overlay=document.createElement("div");
+    overlay.className="camera-overlay";
+    overlay.setAttribute("role","dialog");
+    overlay.setAttribute("aria-label","Lecture de la carte par la caméra");
+    overlay.innerHTML=`<div class="camera-box"><div class="camera-frame"><div class="camera-view"></div><i class="camera-guide" aria-hidden="true"></i></div>
+      <p>Présente le code-barres de ta carte face à la caméra, bien à plat.</p><button type="button" class="btn secondary">Annuler</button></div>`;
+    document.body.append(overlay);
+    let stop=()=>{};
+    const close=()=>{ stop(); overlay.remove(); $("#entry-input")?.focus({preventScroll:true}); };
+    $("button",overlay).addEventListener("click",close);
+    const timeout=setTimeout(close,60_000);
+    try {
+      stop=await startScanner($(".camera-view",overlay),code=>{
+        clearTimeout(timeout);
+        overlay.remove();
+        const input=$("#entry-input");
+        input.value=code;
+        show("Carte lue. Choisis Entrée ou Sortie.","success");
+        $("#entry-submit").focus({preventScroll:true});
+      });
+    } catch {
+      clearTimeout(timeout);
+      overlay.remove();
+      show("Caméra indisponible. Autorise l’accès à la caméra ou utilise la douchette.","error");
+    }
+  });
+}
 function kioskApp() {
   navigator.serviceWorker?.register(urlFor("/sw.js")).catch(()=>{});
   const install=$("#kiosk-install");
@@ -180,7 +216,21 @@ function login(status) {
       ${status.setup && status.demoAllowed ? '<label class="check-line"><input name="demo" type="checkbox" checked> Ajouter des élèves fictifs pour essayer la borne</label>' : ""}
       <div id="login-error" aria-live="polite" hidden></div>
       <button class="btn primary" type="submit">${icon(status.setup ? "check" : "login")} ${status.setup ? "Créer mon compte" : "Se connecter"}</button>
+      ${!status.setup && status.sso?.enabled ? `<div class="sso-divider"><span>ou</span></div><a class="btn secondary sso-button" id="sso-link" href="${urlFor("/api/auth/sso/start")}">${icon("shield")} Se connecter avec ${e(status.sso.label)}</a>` : ""}
     </form></section></main>${footer}</div>`;
+  const params = new URLSearchParams(location.search);
+  const intro = params.get("sso") === "echec" ? ["La connexion par l’ENT a échoué ou aucun compte TiceCDI ne correspond à votre identifiant. Contactez l’administrateur du CDI.", "error"]
+    : params.has("expire") ? ["Votre session a expiré. Reconnectez-vous.", ""] : null;
+  if (intro) { $("#login-error").innerHTML = notice(...intro); $("#login-error").hidden = false; }
+  const challenge = !status.setup && params.get("etape") === "code";
+  if (challenge) {
+    // Retour de l’ENT : seul le code de double authentification reste à saisir.
+    $("#password-step").remove();
+    $("#sso-link")?.remove();
+    $("#mfa-step").hidden = false;
+    $("#login-form [name=code]").required = true;
+    $("#login-form [type=submit]").innerHTML = icon("check") + " Vérifier";
+  }
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -191,7 +241,7 @@ function login(status) {
     submit.disabled = true;
     target.hidden = true;
     try {
-      const result = await api("/auth/" + (status.setup ? "setup" : "login"), "POST", data);
+      const result = await api("/auth/" + (challenge ? "challenge" : status.setup ? "setup" : "login"), "POST", challenge ? { code:data.code } : data);
       if (result.mfa) {
         // Deuxième étape : code de l’application d’authentification ou code de secours.
         $("#mfa-step", form).hidden = false;
@@ -208,6 +258,7 @@ function login(status) {
     catch (error) {
       target.innerHTML = notice(error.message, "error"); target.hidden = false; submit.disabled = false;
       if (error.status === 401 && form.elements.code && !$("#mfa-step", form).hidden) { form.elements.code.value = ""; form.elements.code.focus(); }
+      if (challenge && /expiré/.test(error.message)) setTimeout(() => location.assign(urlFor("/connexion")), 2500);
     }
   });
 }
@@ -238,6 +289,7 @@ const tabs = [
   ["dossiers", "Dossiers individuels", "users", ["donnees"]],
   ["borne-poste", "Activation de la borne", "scan", ["borne"]],
   ["securite", "Sécurité du compte", "shield", ["self"]],
+  ["connexion", "Connexion et sécurité", "settings", ["admin"]],
 ];
 let me, view, records = [], classes = [], activeFilters = { q:"", class:"", archived:"" }, toastTimer, refreshTimer, rosterVersion = 0;
 const can = (right) => right === "self" || (right === "admin" ? me.admin : me.rights.includes(right));
@@ -264,7 +316,8 @@ function section(title, desc, actions = "") {
 }
 function adminShell(user, selected) {
   me = user;
-  const visible = tabs.filter((tab) => tab[3].some(can) && (tab[0]!=="badges" || can("export")));
+  // Double authentification exigée par l’établissement : seule la page « Sécurité du compte » reste accessible.
+  const visible = tabs.filter((tab) => (user.mfa_missing ? tab[0] === "securite" : tab[3].some(can)) && (tab[0]!=="badges" || can("export")));
   const selectedTab = visible.find((entry) => entry[0] === selected) ?? visible[0];
   if (!selectedTab) { login({ setup:false }); return; }
   view = selectedTab[0];
@@ -282,11 +335,11 @@ function adminShell(user, selected) {
     catch (error) { toast(error.message, "error"); }
   });
   $("#main").addEventListener("click", actionHandler);
-  render().catch(pageError);
+  render().then(() => { if (me.admin && !me.mfa_missing) securityAlerts($("#main")); }).catch(pageError);
 }
 
 function pageError(error) {
-  if (error.status === 401) location.assign(urlFor("/connexion"));
+  if (error.status === 401) location.assign(urlFor("/connexion?expire=1"));
   else $("#main").innerHTML = `<div class="panel panel-body">${notice(error.message, "error")}</div>`;
 }
 async function render() {
@@ -324,6 +377,8 @@ async function render() {
     await renderGroups($("#main"),{section,dialogForm,toast});
   } else if (view === "securite") {
     await renderSecurity($("#main"),{section,toast,me});
+  } else if (view === "connexion") {
+    await renderConnection($("#main"),{section,toast});
   } else if (view === "journal") {
     await renderJournal($("#main"),{section,toast});
   } else if (view === "sauvegarde") {
@@ -386,11 +441,12 @@ function bindFilters(update) {
 }
 let presenceNow = Date.now(), places=null, capacity=null, presenceExpiryTimer;
 function refreshPresence() {
-  fetchPresence().catch(error => { if (error.status === 401) pageError(error); else toast(error.message, "error"); });
+  // Actualisation automatique : ne compte pas comme une activité pour la déconnexion après inactivité.
+  fetchPresence(true).catch(error => { if (error.status === 401) pageError(error); else toast(error.message, "error"); });
 }
-async function fetchPresence() {
+async function fetchPresence(background = false) {
   const version = ++rosterVersion;
-  const result = await gestion("presences");
+  const result = await api("/gestion/presences", "GET", undefined, { background });
   if (version !== rosterVersion) return;
   records = result.rows;
   presenceNow = result.now;
@@ -492,25 +548,28 @@ function downloadSample() {
 }
 async function readCsv(file) {
   if (!file) throw new Error("Choisissez un fichier CSV.");
-  if (file.size > 1_700_000) throw new Error("Le fichier dépasse 1,7 Mo.");
+  const xml = /\.xml$/i.test(file.name);
+  if (file.size > (xml ? 25_000_000 : 1_700_000)) throw new Error(xml ? "Le fichier dépasse 25 Mo." : "Le fichier dépasse 1,7 Mo.");
   const bytes = await file.arrayBuffer();
   let source;
   try { source = new TextDecoder("utf-8", { fatal:true }).decode(bytes); }
-  catch { source = new TextDecoder("windows-1252").decode(bytes); }
-  return csvRows(source);
+  catch { source = new TextDecoder(xml ? "iso-8859-15" : "windows-1252").decode(bytes); }
+  // Export SIECLE en XML, analysé dans le navigateur : seuls nom, prénom, division et identifiant sont envoyés.
+  return xml || /^\s*<\?xml/.test(source) ? siecleRows(source) : csvRows(source);
 }
 function renderImport() {
   $("#main").innerHTML = section("Importer des élèves", "Ajoutez un fichier CSV pour créer les fiches, les classes manquantes et les codes CDI.")
     + `<div class="import-grid">
     <section class="panel panel-body import-main"><h2>Fichier des élèves</h2>
       <form class="stack" id="import-form">
-        <label class="file-box">${box("upload")}<strong>Sélectionnez un fichier CSV</strong><p class="hint">Jusqu’à 5 000 élèves par fichier</p><input type="file" name="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" required></label>
+        <label class="file-box">${box("upload")}<strong>Sélectionnez un fichier CSV ou SIECLE (XML)</strong><p class="hint">Jusqu’à 5 000 élèves par fichier</p><input type="file" name="file" accept=".csv,.tsv,.txt,.xml,text/csv,text/tab-separated-values,application/xml,text/xml" required></label>
         <div id="preview-area" aria-live="polite" hidden></div>
         <div class="form-actions"><button class="btn primary" type="submit">${icon("search")} Vérifier le fichier</button></div>
       </form>
     </section>
     <aside class="panel panel-body import-aside"><h2>Format attendu</h2><p class="subtle">Colonnes requises</p>
       <p><code>Nom</code> <code>Prénom</code> <code>Classe</code></p>
+      <p class="subtle"><b>Pronote</b> : exportez la liste des élèves en CSV ; la colonne <code>Élève</code> (NOM Prénom) est reconnue. <b>SIECLE</b> : importez directement <code>ElevesSansAdresses.xml</code> (la division sert de classe) ou un CSV avec <code>Division</code>.</p>
       <p class="subtle">Avec la colonne facultative <b>Identifiant externe</b>, un nouvel import peut déplacer un élève de classe en conservant son code-barres. Sans cet identifiant, la correspondance utilise le nom, le prénom et la classe.</p>
       ${button("Télécharger le modèle", "download", 'data-action="sample"')}
     </aside></div>`;
@@ -539,7 +598,7 @@ function renderImport() {
         `${result.classes} nouvelle${plural(result.classes)} classe${plural(result.classes)}`,
         `${result.skipped} doublon${plural(result.skipped)} ignoré${plural(result.skipped)}`,
       ].join(" · ");
-      target.innerHTML = notice((confirm ? "Import terminé. " : "Vérification terminée. ") + details, confirm ? "success" : "");
+      target.innerHTML = notice((confirm ? "Import terminé. " : "Vérification terminée. ") + (input.format ? "Format reconnu : " + input.format + ". " : "") + details, confirm ? "success" : "");
       if (result.errors.length) {
         target.innerHTML = notice("Corrigez les lignes signalées, puis sélectionnez à nouveau le fichier.", "error")
           + `<div class="preview-info"><ol>${result.errors.slice(0,100).map((row) => `<li>Ligne ${row.line} · ${e(row.message)}</li>`).join("")}</ol></div>`;

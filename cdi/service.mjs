@@ -2,6 +2,7 @@ import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maint
   privacySettings, privateStatistics, publicPlanning, recoveryState, recoveryStatements, scrubLegacy, studentFile, taskStatement } from "./privacy.mjs";
 import { audit, auditRows } from "./audit.mjs";
 import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
+import { connectionApi, connectionSettings, ssoApi, ssoPublic } from "./connection.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
@@ -102,9 +103,13 @@ async function payload(request, maxBytes = 2_000_000) {
   } catch { /* Report invalid data below. */ }
   fail(400, "Données invalides.");
 }
-function cookie(request, token, maxAge, name = "cdi_session") {
+function cookie(request, token, maxAge, name = "cdi_session", sameSite = "Strict") {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${name}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+  return `${name}=${token}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}${secure}`;
+}
+function withCookies(response, cookies) {
+  for (const value of cookies) response.headers.append("Set-Cookie", value);
+  return response;
 }
 export function model(db) {
   const stmt = (sql, ...params) => db.prepare(sql).bind(...params);
@@ -138,13 +143,24 @@ async function authenticate(m, request) {
   if (!token) return null;
   const key = await digest(token);
   const now = Date.now();
-  const row = await m.one("SELECT a.*,t.last_seen AS session_seen FROM sessions t JOIN accounts a ON a.id=t.account_id WHERE t.token=? AND t.expires_at>?", key, now);
+  const row = await m.one(`SELECT a.*,t.last_seen AS session_seen,s.idle_minutes,s.mfa_policy,
+    EXISTS(SELECT 1 FROM account_mfa f WHERE f.account_id=a.id AND f.secret IS NOT NULL) AS has_mfa
+    FROM sessions t JOIN accounts a ON a.id=t.account_id LEFT JOIN security_settings s ON s.id=1
+    WHERE t.token=? AND t.expires_at>?`, key, now);
   if (!row) return null;
-  // Dernière activité mise à jour au plus une fois par minute.
-  if (row.session_seen < now - 60_000) await m.run("UPDATE sessions SET last_seen=? WHERE token=?", now, key);
-  return publicAccount(row);
+  // Déconnexion après inactivité : les actualisations automatiques (en-tête X-CDI-Background) ne comptent pas comme activité.
+  if (row.idle_minutes > 0 && row.session_seen > 0 && row.session_seen < now - row.idle_minutes * 60_000) {
+    await m.run("DELETE FROM sessions WHERE token=?", key);
+    return null;
+  }
+  if (request.headers.get("x-cdi-background") !== "1" && row.session_seen < now - 60_000) await m.run("UPDATE sessions SET last_seen=? WHERE token=?", now, key);
+  const mfa = Boolean(row.has_mfa);
+  return { ...publicAccount(row), mfa, mfa_missing:!mfa && (row.mfa_policy === "all" || (row.mfa_policy === "admins" && row.admin === 1)) };
 }
 async function openSession(m, request, accountId, client = "") {
+  return json({ ok: true }, 200, { "Set-Cookie": await sessionCookieFor(m, request, accountId, client) });
+}
+async function sessionCookieFor(m, request, accountId, client = "") {
   const now = Date.now();
   const token = random(32);
   await m.batch([
@@ -152,7 +168,7 @@ async function openSession(m, request, accountId, client = "") {
     m.stmt("INSERT INTO sessions (token,account_id,expires_at,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?)",
       await digest(token), accountId, now + 12 * HOUR, now, now, agentSummary(request.headers.get("user-agent") ?? ""), String(client).slice(0, 64)),
   ]);
-  return json({ ok: true }, 200, { "Set-Cookie": cookie(request, token, 12 * 3600) });
+  return cookie(request, token, 12 * 3600);
 }
 async function throttle(m, key, limit, minutes = 1) {
   const slot = Math.floor(Date.now() / (minutes * 60_000)) * minutes;
@@ -283,7 +299,7 @@ async function dispatch(request, env, options) {
   const setupAllowed = options.hosted && Boolean(request.headers.get("oai-authenticated-user-id"));
   if (method === "GET" && path === "/api/auth/status") {
     const [user, account] = await Promise.all([authenticate(m, request), m.one("SELECT id FROM accounts LIMIT 1")]);
-    return json({ user, setup: !account, keyRequired: !setupAllowed, demoAllowed: options.hosted });
+    return json({ user, setup: !account, keyRequired: !setupAllowed, demoAllowed: options.hosted, sso: ssoPublic(await connectionSettings(m)) });
   }
   if (method === "POST" && path === "/api/auth/setup") {
     await throttle(m, "setup:" + client, 15, 10);
@@ -325,6 +341,41 @@ async function dispatch(request, env, options) {
     if (verified.upgrade) await m.run("UPDATE accounts SET secret=? WHERE id=? AND secret=?", await passwordHash(candidate), account.id, account.secret);
     return openSession(m, request, account.id, client);
   }
+  if (path.startsWith("/api/auth/sso/")) {
+    const trace = { poste: client, navigateur: agentSummary(request.headers.get("user-agent") ?? "") };
+    const page = (target, query = {}) => target + (Object.keys(query).length ? "?" + new URLSearchParams(query) : "");
+    const links = { page, callback:(state) => url.origin + "/api/auth/sso/callback" + (state ? "?state=" + state : "") };
+    const cookieHeader = (name, value, maxAge, sameSite) => cookie(request, value, maxAge, name, sameSite);
+    const finish = async (account) => {
+      const redirect = (location, cookies) => withCookies(new Response(null, { status:303, headers:{ Location:location, "Cache-Control":"no-store" } }), [cookieHeader("cdi_sso", "", 0, "Lax"), ...cookies]);
+      if (await m.one("SELECT 1 FROM account_mfa WHERE account_id=? AND secret IS NOT NULL", account.id)) {
+        const challenge = random(32);
+        await m.batch([
+          m.stmt("DELETE FROM login_challenges WHERE expires_at<=?", clock),
+          m.stmt("INSERT INTO login_challenges VALUES (?,?,?)", await digest(challenge), account.id, clock + 5 * 60_000),
+        ]);
+        return redirect(page("/connexion", { etape:"code" }), [cookie(request, challenge, 300, "cdi_challenge")]);
+      }
+      return redirect("/gestion", [await sessionCookieFor(m, request, account.id, client)]);
+    };
+    const handled = await ssoApi({ m, request, path, method, clock, fail, links, finish, audit, trace, cookieHeader });
+    if (handled) return handled;
+  }
+  if (method === "POST" && path === "/api/auth/challenge") {
+    const token = request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_challenge=([a-f0-9]{64})(?:;|$)/)?.[1];
+    const pending = token ? await m.one("SELECT * FROM login_challenges WHERE token=? AND expires_at>?", await digest(token), clock) : null;
+    if (!pending) fail(401, "La vérification a expiré. Reconnectez-vous.");
+    const account = await m.one("SELECT * FROM accounts WHERE id=?", pending.account_id);
+    const mfa = await m.one("SELECT * FROM account_mfa WHERE account_id=? AND secret IS NOT NULL", pending.account_id);
+    const data = await payload(request);
+    await throttle(m, "mfa:" + account.id, 6, 10);
+    if (!mfa || !await consumeSecondFactor(m, account.id, mfa, data.code, clock)) {
+      await m.batch([audit(m, account, "securite", "Échec de la double authentification", account.username, null, { poste: client, navigateur: agentSummary(request.headers.get("user-agent") ?? "") })]);
+      fail(401, "Code de vérification incorrect.");
+    }
+    await m.run("DELETE FROM login_challenges WHERE token=?", pending.token);
+    return withCookies(json({ ok: true }), [await sessionCookieFor(m, request, account.id, client), cookie(request, "", 0, "cdi_challenge")]);
+  }
   if (method === "POST" && path === "/api/auth/logout") {
     const token = request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_session=([a-f0-9]{64})(?:;|$)/)?.[1];
     if (token) await m.run("DELETE FROM sessions WHERE token=?", await digest(token));
@@ -336,7 +387,8 @@ async function dispatch(request, env, options) {
     const start=url.searchParams.get("week");
     if (!validDay(start) || weekday(start)!==1) fail(400,"Sélectionnez un lundi.");
     const planned=await weekPlanning(m,start);
-    return json({...planned,rows:publicPlanning(planned.rows)});
+    // Occupation en temps réel pour l’écran public : uniquement des nombres agrégés.
+    return json({...planned,rows:publicPlanning(planned.rows),occupancy:await occupancy(m,clock)});
   }
   if (path.startsWith("/api/borne/")) {
     const token=request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_device=([a-f0-9]{64})(?:;|$)/)?.[1];
@@ -394,6 +446,10 @@ async function dispatch(request, env, options) {
   if (!me) fail(401, "Connectez-vous pour accéder à cet espace.");
   const need = (...rights) => { if (!rights.some((right) => me.rights.includes(right))) fail(403, "Votre compte ne dispose pas de cet accès."); };
   const token = sessionCookie(request);
+  if (me.mfa_missing && !path.startsWith("/api/gestion/securite")) fail(403, "Votre établissement exige la double authentification : activez-la dans « Sécurité du compte ».");
+  const configured = await connectionApi({ m, request, me, path, method, clock, json, fail, payload, audit,
+    callback: url.origin + "/api/auth/sso/callback" });
+  if (configured) return configured;
   const secured = await securityApi({ m, request, me, path, method, clock, json, fail, payload, audit, verifyPassword, cookie,
     currentToken: token ? await digest(token) : "" });
   if (secured) return secured;

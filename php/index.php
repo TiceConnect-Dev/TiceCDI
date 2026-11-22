@@ -63,7 +63,7 @@ try {
             echo 'ok';
             return;
         }
-        foreach (['people', 'planning', 'presence', 'attendance', 'privacy', 'backup', 'security', 'api'] as $module) {
+        foreach (['people', 'planning', 'presence', 'attendance', 'privacy', 'backup', 'security', 'connection', 'api'] as $module) {
             require __DIR__ . '/app/' . $module . '.php';
         }
         $now=clockMs();

@@ -98,12 +98,14 @@ export function routePath() {
   return phpEntry ? new URLSearchParams(location.search).get("route") || "/" : location.pathname;
 }
 
-export async function api(path, method = "GET", data) {
+export async function api(path, method = "GET", data, options = {}) {
   const sendsBody = data !== undefined;
+  const headers = { ...(sendsBody ? { "Content-Type": "application/json" } : {}), ...(options.background ? { "X-CDI-Background": "1" } : {}) };
   const response = await fetch(urlFor("/api" + path), {
     method,
     credentials: "same-origin",
-    ...(sendsBody ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) } : {}),
+    headers,
+    ...(sendsBody ? { body: JSON.stringify(data) } : {}),
   });
   let result;
   try { result = await response.json(); }
@@ -145,17 +147,61 @@ export function csvRows(text) {
   if (inQuote) throw new Error("Un champ entre guillemets est incomplet dans le fichier.");
   row.push(cell.trim());
   grid.push(row);
-  const headers = (grid.shift() ?? []).map((col) => col.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, ""));
-  const index = (...names) => headers.findIndex((name) => names.includes(name));
-  const last = index("nom", "nomdefamille", "last", "lastname");
-  const first = index("prenom", "prenoms", "first", "firstname");
-  const group = index("classe", "fullclass", "classname", "division");
-  const reference = index("id", "identifiantinterne", "identifiant", "identifiantexterne", "numeroeleve", "externalid");
-  if (last < 0 || first < 0 || group < 0) throw new Error("Le fichier doit contenir les colonnes Nom, Prénom et Classe sur la première ligne.");
-  if (grid.some((fields) => fields.some(Boolean) && fields.length !== headers.length)) throw new Error("Certaines lignes n’ont pas le même nombre de colonnes que l’en-tête.");
-  return grid.filter((fields) => fields.some(Boolean)).map((fields) => ({
-    last_name:fields[last] ?? "", first_name:fields[first] ?? "", class_name:fields[group] ?? "", external_id:fields[reference] ?? "",
+  // Formats reconnus : modèle TiceCDI, exports Pronote (colonne « Élève » NOM Prénom acceptée) et SIECLE / ONDE en CSV.
+  const simplify = (col) => col.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const aliases = {
+    last:["nom", "nomdefamille", "nomdusage", "nomusage", "nomeleve", "nomdeleve", "last", "lastname"],
+    first:["prenom", "prenoms", "prenom1", "premierprenom", "prenomeleve", "prenomdeleve", "first", "firstname"],
+    full:["eleve", "eleves", "nomprenom", "nometprenom", "nomprenomeleve", "identite"],
+    group:["classe", "classes", "fullclass", "classname", "division", "divisions", "classedivision", "codedivision", "codestructure", "libelleclasse"],
+    reference:["id", "identifiantinterne", "identifiant", "identifiantexterne", "numeroeleve", "externalid", "eleveid", "numerointerne", "idinterne"],
+  };
+  const headerAt = grid.slice(0, 6).findIndex((row) => {
+    const names = row.map(simplify);
+    return names.some((name) => aliases.group.includes(name))
+      && (names.some((name) => aliases.full.includes(name)) || (names.some((name) => aliases.last.includes(name)) && names.some((name) => aliases.first.includes(name))));
+  });
+  if (headerAt < 0) throw new Error("Le fichier doit contenir les colonnes Nom, Prénom et Classe (ou Élève et Classe) dans ses premières lignes.");
+  const headers = grid.splice(0, headerAt + 1).at(-1).map(simplify);
+  const index = (names) => headers.findIndex((name) => names.includes(name));
+  const last = index(aliases.last), first = index(aliases.first), full = index(aliases.full), group = index(aliases.group), reference = index(aliases.reference);
+  const body = grid.filter((fields) => fields.some(Boolean));
+  if (body.some((fields) => fields.length !== headers.length && fields.length !== headers.length - 1)) throw new Error("Certaines lignes n’ont pas le même nombre de colonnes que l’en-tête.");
+  const pronote = last < 0 || first < 0;
+  const rows = body.map((fields) => {
+    let lastName = fields[last] ?? "", firstName = fields[first] ?? "";
+    if (pronote) {
+      // « DUPONT-MARTIN Jean-Luc » : les mots en capitales forment le nom.
+      const words = (fields[full] ?? "").trim().split(/\s+/);
+      const split = words.findIndex((word) => word !== word.toLocaleUpperCase("fr") || !/\p{L}/u.test(word));
+      lastName = words.slice(0, split < 0 ? words.length : Math.max(split, 1)).join(" ");
+      firstName = split < 0 ? "" : words.slice(Math.max(split, 1)).join(" ");
+    }
+    return { last_name:lastName, first_name:firstName, class_name:(fields[group] ?? "").split(/[,;]/)[0].trim(), external_id:fields[reference] ?? "" };
+  });
+  Object.defineProperty(rows, "format", { value:pronote ? "Pronote (colonne Élève)" : headers.includes("division") || headers.includes("codestructure") ? "SIECLE / ONDE (CSV)" : "CSV" });
+  return rows;
+}
+
+// Export SIECLE « ElevesSansAdresses.xml » (ou ElevesAvecAdresses) : nom, prénom, division et identifiant SIECLE.
+export function siecleRows(xml) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.querySelector("parsererror")) throw new Error("Le fichier XML est illisible.");
+  const text = (node, name) => node.getElementsByTagName(name)[0]?.textContent.trim() ?? "";
+  const divisions = new Map();
+  for (const block of doc.getElementsByTagName("STRUCTURES_ELEVE")) {
+    for (const structure of block.getElementsByTagName("STRUCTURE")) {
+      if (text(structure, "TYPE_STRUCTURE") === "D") divisions.set(block.getAttribute("ELEVE_ID"), text(structure, "CODE_STRUCTURE"));
+    }
+  }
+  const pupils = [...doc.getElementsByTagName("ELEVE")].filter((node) => node.getAttribute("ELEVE_ID"));
+  if (!pupils.length) throw new Error("Aucun élève trouvé : utilisez l’export SIECLE « ElevesSansAdresses.xml ».");
+  const rows = pupils.filter((node) => !text(node, "DATE_SORTIE") && divisions.has(node.getAttribute("ELEVE_ID"))).map((node) => ({
+    last_name:text(node, "NOM_DE_FAMILLE") || text(node, "NOM"), first_name:text(node, "PRENOM"),
+    class_name:divisions.get(node.getAttribute("ELEVE_ID")), external_id:"SIECLE-" + node.getAttribute("ELEVE_ID"),
   }));
+  Object.defineProperty(rows, "format", { value:"SIECLE (XML)" });
+  return rows;
 }
 
 const codePatterns = "212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112".split(" ");

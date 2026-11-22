@@ -251,3 +251,58 @@ export function weekPdf(data,days,kinds) {
   if(entries.length) pages.push(...detailPages(entries,pages.length+1));
   return makePdf(pages);
 }
+
+// Rapport de fréquentation (A4 paysage) : totaux, passages par jour, moyenne par jour de semaine et affluence jour × heure.
+export function statsPdf(data, weekdays, grid) {
+  const fmt=new Intl.NumberFormat("fr-FR");
+  let page=header("Rapport de fréquentation du CDI",`Du ${date(data.from)} au ${date(data.to)} · totaux agrégés de l’établissement`);
+  const card=(x,title,value)=>box(x,100,190,54,"0.94 0.95 0.99")+label(x+12,122,value,{size:18,bold:true,color:blue})+label(x+12,143,title,{size:9,color:muted});
+  page+=card(margin,"Passages",fmt.format(data.visits))+card(margin+202,"Durée moyenne observée",Math.round(data.average)+" min")
+    +card(margin+404,"Jours avec passages",String(data.daily.length||"—"));
+  // Passages par jour (barres verticales)
+  const chartX=margin, chartY=182, chartW=width/2-margin-12, chartH=170;
+  page+=label(chartX,chartY,"Passages par jour",{size:12,bold:true});
+  if(data.daily.length) {
+    const max=Math.max(1,...data.daily.map(row=>row.visits));
+    const step=chartW/data.daily.length, bar=Math.max(1,Math.min(18,step*.7));
+    page+=box(chartX,chartY+12+chartH,chartW,.6,"0.75 0.77 0.85");
+    data.daily.forEach((row,i)=>{
+      const h=row.visits/max*(chartH-14);
+      page+=box(chartX+i*step+(step-bar)/2,chartY+12+chartH-h,bar,h,"0.32 0.33 0.76");
+    });
+    page+=label(chartX,chartY+chartH+28,date(data.daily[0].day),{size:8,color:muted})
+      +label(chartX+chartW-48,chartY+chartH+28,date(data.daily.at(-1).day),{size:8,color:muted})
+      +label(chartX+chartW-70,chartY+10,"max. "+fmt.format(max)+" / jour",{size:8,color:muted});
+  } else page+=label(chartX,chartY+30,"Détail quotidien masqué : petits effectifs regroupés.",{size:10,color:muted});
+  // Moyenne par jour de semaine
+  const sideX=width/2+12;
+  page+=label(sideX,chartY,"Moyenne par jour de la semaine",{size:12,bold:true});
+  const best=Math.max(1,...weekdays.map(row=>row.average));
+  weekdays.forEach((row,i)=>{
+    const y=chartY+18+i*24, w=(width-sideX-margin-130)*row.average/best;
+    page+=label(sideX,y+12,row.name,{size:10})+box(sideX+80,y+2,width-sideX-margin-130,13,"0.93 0.94 0.98")+box(sideX+80,y+2,w,13,"0.32 0.33 0.76")
+      +label(width-margin-44,y+12,fmt.format(Math.round(row.average*10)/10),{size:10,bold:true});
+  });
+  const pages=[page+label(margin,height-18,"TiceCDI · rapport généré le "+new Date().toLocaleDateString("fr-FR"),{size:8,color:muted})];
+  if(grid) {
+    let heat=header("Affluence par jour et par heure",`Du ${date(data.from)} au ${date(data.to)} · passages conservés, selon l’heure d’arrivée`);
+    const left=margin+80, cellW=Math.min(48,(width-left-margin)/grid.slots.length), cellH=34, top=112;
+    const names=["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+    grid.slots.forEach((hour,i)=>{heat+=label(left+i*cellW+cellW/2-8,top,hour+"h",{size:9,bold:true,color:muted});});
+    grid.days.forEach((weekday,row)=>{
+      const y=top+10+row*cellH;
+      heat+=label(margin,y+cellH/2+4,names[weekday-1],{size:10,bold:true});
+      grid.slots.forEach((hour,i)=>{
+        const value=grid.value(weekday,hour);
+        const ratio=value===null?.08:value/grid.max;
+        const mix=[[.94,.29],[.95,.32],[1,.81]].map(([a,b])=>(a+(b-a)*ratio).toFixed(3)).join(" ");
+        heat+=box(left+i*cellW+1,y+1,cellW-2,cellH-2,value!==0?mix:"0.97 0.97 0.99");
+        const text=value===null?"<5":value?String(value):"";
+        if(text) heat+=label(left+i*cellW+cellW/2-text.length*2.6,y+cellH/2+4,text,{size:9,bold:ratio>.5,color:ratio>.55?"1 1 1":ink});
+      });
+    });
+    heat+=label(margin,top+20+grid.days.length*cellH+10,"Les cases de moins de cinq passages sont masquées (« <5 ») pour protéger les petits effectifs.",{size:9,color:muted});
+    pages.push(heat);
+  }
+  return makePdf(pages);
+}

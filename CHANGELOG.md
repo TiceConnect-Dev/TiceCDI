@@ -1,5 +1,31 @@
 # Journal des versions
 
+## v1.5.0 · Connexion ENT, règles de connexion, statistiques, imports et caméra
+
+**Connexion et sécurité** (nouvelle rubrique réservée aux administrateurs)
+
+- Connexion par l’ENT : CAS (ENT académiques, Skolengo, Atrium…) ou OpenID Connect avec PKCE. Bouton « Se connecter avec … » sur la page de connexion. L’identifiant renvoyé par l’ENT doit correspondre à un compte TiceCDI existant ; aucun compte n’est créé automatiquement. Si le compte a la double authentification, le code est demandé au retour de l’ENT.
+- Double authentification exigée au choix : facultative, obligatoire pour les administrateurs ou pour tous. Un compte concerné ne voit plus que « Sécurité du compte » tant qu’elle n’est pas activée.
+- Déconnexion après inactivité (60 min par défaut, réglable, 0 pour désactiver). Les actualisations automatiques de la page Présences ne comptent pas comme activité.
+- Encart d’alerte pour les administrateurs quand un compte dépasse un seuil d’échecs de connexion sur 24 h (5 par défaut).
+
+**Statistiques**
+
+- Moyenne des passages par jour de la semaine et carte d’affluence jour × heure (cases de moins de 5 passages masquées).
+- Rapport PDF de fréquentation (synthèse, passages par jour, moyennes, affluence) pour le conseil pédagogique ou le rapport d’activité.
+
+**Import des élèves**
+
+- Exports Pronote reconnus, y compris la colonne « Élève » au format NOM Prénom et une ligne de titre avant l’en-tête.
+- SIECLE : import direct du fichier `ElevesSansAdresses.xml` (division comme classe, élèves sortis ignorés, identifiant SIECLE conservé) ou d’un CSV avec la colonne Division. Le format reconnu est indiqué à la vérification.
+
+**Borne et écran**
+
+- Scan de la carte par la caméra (bouton « Scanner avec la caméra », HTTPS requis), avec le détecteur du navigateur ou un décodeur Code 128 intégré.
+- L’écran de planning public affiche les places libres en temps réel (ou le nombre d’élèves présents sans capacité définie).
+
+La migration `0006_connection_settings.sql` s’applique seule. Après la mise à jour, la déconnexion après 60 minutes d’inactivité est active : ajustez-la dans **Connexion et sécurité**.
+
 ## v1.4.0 · Double authentification, sessions, thème sombre et borne installable
 
 **Sécurité des comptes**

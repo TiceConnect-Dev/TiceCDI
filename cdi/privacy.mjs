@@ -61,6 +61,12 @@ export async function maintain(m, clock=Date.now()) {
   return m.one("SELECT last_success FROM privacy_state WHERE id=1");
 }
 
+// Répartition jour × heure (heure de Paris) des passages encore conservés ; les cases de moins de 5 passages sont masquées.
+export const hoursSql=`SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits
+  FROM local_visits WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour`;
+export function maskHours(rows) {
+  return rows.map(row=>({weekday:row.weekday===0?7:row.weekday,hour:row.hour,visits:row.visits>=5?row.visits:null}));
+}
 export async function privateStatistics(m,from,to,clock,fail) {
   if (!validDay(from) || !validDay(to) || from>to || to>parisClock(clock).day || Date.parse(to)-Date.parse(from)>=366*dayMs)
     fail(400,"Choisissez une période de 366 jours maximum qui se termine aujourd’hui ou plus tôt.");
@@ -76,7 +82,7 @@ export async function privateStatistics(m,from,to,clock,fail) {
   if (!rows.some(r=>r.distinct_floor>=5)) return {from,to,hidden:true,threshold:5,daily:[]};
   // Si une cellule est trop petite, n’afficher que le total de la période.
   const daily=rows.some(r=>r.distinct_floor<5) ? [] : rows.map(({day,visits})=>({day,visits}));
-  return {from,to,hidden:false,threshold:5,visits:sum.visits,average:sum.observed_ms/sum.visits/60000,daily};
+  return {from,to,hidden:false,threshold:5,visits:sum.visits,average:sum.observed_ms/sum.visits/60000,daily,hours:maskHours(await m.list(hoursSql,from,to))};
 }
 
 export function scrubLegacy(tables) {

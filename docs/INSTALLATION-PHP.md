@@ -75,6 +75,8 @@ client_max_body_size 24m;
 
 **Borne installable (PWA).** Le service worker est servi par `index.php?route=/sw.js` et le manifeste par `cdi/manifest.webmanifest`. L’installation de la borne et le maintien de l’écran allumé exigent HTTPS. Si le serveur renvoie le manifeste en `text/plain`, ajoute `AddType application/manifest+json .webmanifest` dans la configuration Apache (ou `application/manifest+json webmanifest;` dans `mime.types` pour Nginx).
 
+**Connexion ENT.** TiceCDI contacte le serveur CAS ou OpenID Connect de l’ENT : l’extension `curl` (recommandée) ou `allow_url_fopen=On` est nécessaire, ainsi qu’un accès sortant en HTTPS depuis le serveur. Renseigne `CDI_ORIGIN` pour que l’adresse de retour déclarée à l’ENT soit exacte.
+
 **PHP.** Utilise une version maintenue, laisse `display_errors=Off` en production et, si possible, `expose_php=Off` dans `php.ini`. Après la création du compte administrateur, supprime `installation.key` du dossier privé.
 
 ## Programmer la purge

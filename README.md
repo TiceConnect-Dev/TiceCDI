@@ -15,8 +15,8 @@
 | **Gestion** | Annuaire et import minimal, fiches d’appel internes, présences, restrictions d’accès et dossiers individuels selon les habilitations. |
 | **Fréquentation** | Totaux et durées agrégés qui subsistent après la purge, sans détail par classe. |
 | **Administration** | Réglages de l’établissement, notices, fiche de registre, comptes nominatifs, purge et sauvegardes chiffrées. |
-| **Sécurité** | Double authentification par application (TOTP) avec codes de secours, sessions actives révocables, journal des échecs de connexion. |
-| **Confort** | Thème sombre automatique ou manuel, borne installable en application plein écran qui se reconnecte seule. |
+| **Sécurité** | Connexion par l’ENT (CAS ou OpenID Connect), double authentification (TOTP) facultative ou exigée, codes de secours, déconnexion après inactivité, sessions révocables, alertes d’échecs de connexion. |
+| **Confort** | Thème sombre, borne installable en plein écran avec scan par caméra, places libres sur l’écran public, imports Pronote et SIECLE, rapport PDF de fréquentation. |
 
 ## Installation
 

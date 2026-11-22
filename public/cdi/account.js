@@ -65,7 +65,7 @@ function codesStep(codes, done) {
 }
 
 export async function renderSecurity(target, { section, toast, me }) {
-  const [data, global] = await Promise.all([gestion("securite"), me.admin ? gestion("sessions") : Promise.resolve(null)]);
+  const [data, global] = await Promise.all([gestion("securite"), me.admin && !me.mfa_missing ? gestion("sessions") : Promise.resolve(null)]);
   const reload = () => renderSecurity(target, { section, toast, me });
   const mfa = data.mfa;
   const sessionRow = (row, admin = false) => `<tr>
@@ -74,7 +74,8 @@ export async function renderSecurity(target, { section, toast, me }) {
     <td>${stamp(row.created_at)}</td><td>${stamp(row.last_seen)}</td>
     <td>${row.current ? pill("Cette session", "green") : button("Fermer", "logout", `data-session="${e(row.id)}" data-scope="${admin ? "all" : "own"}"`, "secondary tiny")}</td></tr>`;
 
-  target.innerHTML = section("Sécurité du compte", "Protégez votre compte par un code sur téléphone et surveillez les connexions ouvertes.") + `
+  target.innerHTML = section("Sécurité du compte", "Protégez votre compte par un code sur téléphone et surveillez les connexions ouvertes.")
+    + (me.mfa_missing && !mfa.enabled ? notice("Votre établissement exige la double authentification. Activez-la pour accéder aux autres rubriques.", "warning", "warning") : "") + `
     <section class="panel security-panel"><div class="table-top"><h2>Double authentification</h2>${mfa.enabled ? pill("Active", "green") : pill("Inactive", "red")}</div>
       <div class="panel-body stack">
         <p>${mfa.enabled
@@ -105,7 +106,11 @@ export async function renderSecurity(target, { section, toast, me }) {
           <div><span class="subtle">Clé de configuration</span><code class="secret-key">${e(secret.match(/.{1,4}/g).join(" "))}</code></div></div>${codeField()}`,
         async save(next) {
           const { codes } = await gestion("securite/totp/activation", "POST", { code:next.elements.code.value });
-          return codesStep(codes, async () => { toast("Double authentification activée. Vos autres sessions ont été fermées."); await reload(); });
+          return codesStep(codes, async () => {
+            if (me.mfa_missing) { location.reload(); return; }
+            toast("Double authentification activée. Vos autres sessions ont été fermées.");
+            await reload();
+          });
         },
       };
     },
@@ -139,4 +144,76 @@ export async function renderSecurity(target, { section, toast, me }) {
       await reload();
     } catch (error) { toast(error.message, "error"); }
   }));
+}
+
+// Encart d’alerte (administrateurs) : comptes visés par des échecs de connexion répétés sur 24 heures.
+export async function securityAlerts(target) {
+  try {
+    const { rows, threshold } = await gestion("securite/alertes");
+    if (!rows.length || !target.isConnected) return;
+    const box = document.createElement("div");
+    box.className = "security-alert";
+    box.setAttribute("role", "alert");
+    box.innerHTML = notice(`Échecs de connexion répétés (${threshold} ou plus en 24 h) : ` + rows.map((row) => `${row.target} (${row.count})`).join(", ")
+      + ". Consultez la rubrique « Sécurité des comptes » du journal.", "warning", "warning");
+    target.prepend(box);
+  } catch { /* Encart facultatif */ }
+}
+
+const policyNames = { none:"Facultative", admins:"Obligatoire pour les administrateurs", all:"Obligatoire pour tous les comptes" };
+export async function renderConnection(target, { section, toast }) {
+  const data = await gestion("connexion");
+  target.innerHTML = section("Connexion et sécurité", "Règles de connexion du personnel et connexion par l’ENT de l’établissement.") + `
+    <form class="panel panel-body stack settings-panel" id="connection-form">
+      <h2>Règles de connexion</h2>
+      <label class="field"><span>Double authentification</span><select name="mfa_policy">${Object.entries(policyNames).map(([value, name]) => `<option value="${value}" ${data.mfa_policy === value ? "selected" : ""}>${name}</option>`).join("")}</select>
+        <small>Un compte concerné sans double authentification ne voit plus que « Sécurité du compte » jusqu’à son activation.</small></label>
+      <div class="form-grid">
+        <label class="field"><span>Déconnexion après inactivité (minutes)</span><input name="idle_minutes" type="number" min="0" max="720" step="5" value="${data.idle_minutes}" required><small>0 désactive la déconnexion. Les actualisations automatiques ne comptent pas comme activité.</small></label>
+        <label class="field"><span>Seuil d’alerte (échecs en 24 h)</span><input name="alert_threshold" type="number" min="3" max="100" value="${data.alert_threshold}" required><small>Un encart prévient les administrateurs au-delà de ce nombre d’échecs pour un même compte.</small></label>
+      </div>
+      <h2>Connexion par l’ENT</h2>
+      <label class="field"><span>Mode</span><select name="sso_mode"><option value="">Désactivée</option><option value="cas" ${data.sso_mode === "cas" ? "selected" : ""}>CAS (ENT académiques, Skolengo, Atrium…)</option><option value="oidc" ${data.sso_mode === "oidc" ? "selected" : ""}>OpenID Connect</option></select></label>
+      <div id="sso-fields" class="stack">
+        <label class="field"><span>Libellé du bouton</span><input name="sso_label" maxlength="40" value="${e(data.sso_label)}" placeholder="ENT"><small>Affiché « Se connecter avec … » sur la page de connexion.</small></label>
+        <label class="field" data-mode="cas"><span>Adresse du serveur CAS</span><input name="cas_url" type="url" maxlength="300" value="${e(data.cas_url)}" placeholder="https://cas.ent.exemple.fr/cas"></label>
+        <div class="form-grid" data-mode="oidc">
+          <label class="field"><span>Émetteur (issuer)</span><input name="oidc_issuer" type="url" maxlength="300" value="${e(data.oidc_issuer)}" placeholder="https://auth.exemple.fr/realms/ent"></label>
+          <label class="field"><span>Identifiant client</span><input name="oidc_client_id" maxlength="200" value="${e(data.oidc_client_id)}"></label>
+          <label class="field"><span>Secret client</span><input name="oidc_client_secret" type="password" maxlength="500" autocomplete="new-password" placeholder="${data.has_secret ? "Enregistré · laisser vide pour le conserver" : "Facultatif (client public avec PKCE)"}"></label>
+          <label class="field"><span>Champ portant l’identifiant</span><input name="oidc_claim" maxlength="60" value="${e(data.oidc_claim)}"><small>Ex. preferred_username ou email.</small></label>
+        </div>
+        ${notice("Adresse de retour à déclarer auprès de l’ENT : " + data.callback, "", "info")}
+        <p class="subtle">L’identifiant renvoyé par l’ENT doit correspondre exactement à l’identifiant du compte TiceCDI. Aucun compte n’est créé automatiquement.</p>
+      </div>
+      <div id="connection-result" aria-live="polite"></div>
+      <div class="form-actions"><button class="btn secondary" type="button" id="sso-test">${icon("refresh")} Tester les réglages enregistrés</button>
+        <button class="btn primary" type="submit">${icon("check")} Enregistrer</button></div>
+    </form>`;
+  const form = $("#connection-form", target);
+  const result = $("#connection-result", target);
+  const sync = () => {
+    const mode = form.elements.sso_mode.value;
+    $("#sso-fields", form).hidden = !mode;
+    form.querySelectorAll("[data-mode]").forEach((node) => { node.hidden = node.dataset.mode !== mode; });
+    $("#sso-test", form).hidden = !mode;
+  };
+  form.elements.sso_mode.addEventListener("change", sync);
+  sync();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fields = Object.fromEntries(new FormData(form));
+    try {
+      await gestion("connexion", "PATCH", { ...fields, idle_minutes:Number(fields.idle_minutes), alert_threshold:Number(fields.alert_threshold) });
+      toast("Réglages de connexion enregistrés.");
+      await renderConnection(target, { section, toast });
+    } catch (error) { result.innerHTML = notice(error.message, "error"); }
+  });
+  $("#sso-test", form).addEventListener("click", async () => {
+    result.innerHTML = notice("Test en cours…");
+    try {
+      const outcome = await gestion("connexion/test", "POST", {});
+      result.innerHTML = notice(outcome.message, outcome.ok ? "success" : "error");
+    } catch (error) { result.innerHTML = notice(error.message, "error"); }
+  });
 }
