@@ -14,7 +14,7 @@ L’image utilise l’édition Docker du CDI, avec Node.js et SQLite inclus. Le 
 | `CDI_BIND_IP` | `127.0.0.1` | Pour la borne sur le réseau local, mets l’adresse IP interne du serveur. |
 | `CDI_ORIGIN` | Vide | Derrière un reverse proxy, indique l’origine externe exacte, sans chemin ni barre oblique finale. |
 | `CDI_TRUST_PROXY` | `0` | Mets `1` uniquement si le conteneur n’est joignable que par ton reverse proxy. Les tentatives de connexion sont alors comptées par poste réel. |
-| `CDI_IMAGE_TAG` | `latest` | Indique `v1.3.0` si tu veux épingler cette version. |
+| `CDI_IMAGE_TAG` | `latest` | Indique `v1.4.0` si tu veux épingler cette version. |
 | `CDI_PULL_POLICY` | `missing` | Mets `never` pour utiliser une image importée localement. |
 
 4. Clique sur **Deploy the stack**. Dans **Containers**, vérifie que le conteneur a démarré, puis ouvre ses journaux pour lire la clé de première configuration.
@@ -46,7 +46,7 @@ Ne publie pas le port 8080 directement sur Internet : laisse `CDI_BIND_IP=127.0.
 
 1. Télécharge une sauvegarde chiffrée et l’état de reprise actualisé depuis TiceCDI. Conserve le volume d’origine.
 2. Pour passer de l’ancien `build: .` à l’image publiée, modifie **la même stack** en gardant le montage `cdi_data:/data`. Si tu changes de nom de stack, Docker utilise par défaut un autre volume.
-3. Pour mettre à jour, importe le nouveau fichier dans **Images** et actualise la stack. Si tu utilises le registre, active **Re-pull image** lors de la mise à jour de la stack. Pour passer en v1.3.0, recopie aussi le nouveau contenu de `compose.portainer.yaml` afin de récupérer le durcissement, en gardant le même nom de stack.
+3. Pour mettre à jour, importe le nouveau fichier dans **Images** et actualise la stack. Si tu utilises le registre, active **Re-pull image** lors de la mise à jour de la stack. Depuis une version antérieure à la v1.3.0, recopie aussi le nouveau contenu de `compose.portainer.yaml` afin de récupérer le durcissement, en gardant le même nom de stack.
 4. Ouvre `/healthz` et vérifie la connexion administrateur, les données et le planning. Renseigne les paramètres dans **Établissement et données personnelles**.
 5. Sous Docker la purge démarre automatiquement. Une base migrée conserve son historique tant que l’administrateur n’a pas validé et activé la purge. Vérifie son dernier passage réussi.
 

@@ -272,10 +272,15 @@ function sessionToken(): ?string
 function authenticate(Store $db, int $clock): ?array
 {
     $token = sessionToken();
-    $row = $token === null ? null : $db->one(
-        'SELECT a.* FROM sessions t JOIN accounts a ON a.id=t.account_id WHERE t.token=? AND t.expires_at>?',
-        hash('sha256', $token), $clock
+    $key = $token === null ? null : hash('sha256', $token);
+    $row = $key === null ? null : $db->one(
+        'SELECT a.*,t.last_seen AS session_seen FROM sessions t JOIN accounts a ON a.id=t.account_id WHERE t.token=? AND t.expires_at>?',
+        $key, $clock
     );
+    if ($row && (int) $row['session_seen'] < $clock - 60_000) {
+        // Dernière activité mise à jour au plus une fois par minute.
+        $db->run('UPDATE sessions SET last_seen=? WHERE token=?', $clock, $key);
+    }
     return $row ? publicAccount($row) : null;
 }
 
@@ -300,7 +305,9 @@ function startLogin(Store $db, string $account, int $clock): array
     $token = bin2hex(random_bytes(32));
     $expires = $clock + 12 * HOUR_MS;
     $db->run('DELETE FROM sessions WHERE expires_at<=?', $clock);
-    $db->run('INSERT INTO sessions VALUES (?,?,?)', hash('sha256', $token), $account, $expires);
+    $db->run('INSERT INTO sessions (token,account_id,expires_at,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?)',
+        hash('sha256', $token), $account, $expires, $clock, $clock,
+        agentSummary((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), substr(clientAddress(), 0, 64));
     cookie($token, intdiv($expires, 1000));
     return ['ok' => true];
 }

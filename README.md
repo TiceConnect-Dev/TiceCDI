@@ -15,6 +15,8 @@
 | **Gestion** | Annuaire et import minimal, fiches d’appel internes, présences, restrictions d’accès et dossiers individuels selon les habilitations. |
 | **Fréquentation** | Totaux et durées agrégés qui subsistent après la purge, sans détail par classe. |
 | **Administration** | Réglages de l’établissement, notices, fiche de registre, comptes nominatifs, purge et sauvegardes chiffrées. |
+| **Sécurité** | Double authentification par application (TOTP) avec codes de secours, sessions actives révocables, journal des échecs de connexion. |
+| **Confort** | Thème sombre automatique ou manuel, borne installable en application plein écran qui se reconnecte seule. |
 
 ## Installation
 
@@ -37,7 +39,7 @@ TiceCDI traite les données localement et ne contient ni télémétrie ni appel 
 
 ## Sécurité
 
-TiceCDI v1.3.0 renforce la protection par défaut : mots de passe hachés en PBKDF2-SHA256 à 600 000 itérations (conversion automatique des anciens comptes), en-têtes de sécurité sur toutes les réponses, méthodes HTTP limitées, conteneur Docker en lecture seule sans privilèges et règles Apache et Nginx pour l’édition PHP.
+TiceCDI propose la double authentification par application (TOTP) avec codes de secours, une page de sessions actives et la trace des échecs de connexion dans le journal. Depuis la v1.3.0, la protection par défaut comprend aussi : mots de passe hachés en PBKDF2-SHA256 à 600 000 itérations (conversion automatique des anciens comptes), en-têtes de sécurité sur toutes les réponses, méthodes HTTP limitées, conteneur Docker en lecture seule sans privilèges et règles Apache et Nginx pour l’édition PHP.
 
 Avant l’ouverture, suivez la [check-list de mise en production](SECURITY.md#check-list-de-mise-en-production) : HTTPS, `CDI_ORIGIN`, `CDI_TRUST_PROXY` derrière un proxy de confiance et accès à la gestion restreint au réseau de l’établissement. Les vulnérabilités se signalent selon [SECURITY.md](SECURITY.md).
 

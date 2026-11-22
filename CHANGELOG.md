@@ -1,5 +1,24 @@
 # Journal des versions
 
+## v1.4.0 · Double authentification, sessions, thème sombre et borne installable
+
+**Sécurité des comptes**
+
+- Double authentification par code à 6 chiffres (TOTP, compatible Microsoft Authenticator, Google Authenticator, FreeOTP, Aegis…). Activation par QR code généré dans le navigateur, sans service externe.
+- Dix codes de secours à usage unique, à copier ou télécharger, régénérables à tout moment. Un code déjà utilisé ne peut pas être rejoué.
+- Un administrateur peut réinitialiser la double authentification d’un agent qui a perdu son téléphone (ses sessions sont alors fermées).
+- Nouvelle page **Sécurité du compte** pour chaque agent : sessions ouvertes (navigateur, poste, ouverture, dernière activité), fermeture d’une session ou de toutes les autres. Les administrateurs voient et ferment les sessions de tous les comptes.
+- Le journal, rubrique **Sécurité des comptes**, trace les échecs de connexion et de double authentification (poste et navigateur), les connexions par code de secours, les activations, désactivations, réinitialisations et fermetures de sessions.
+- Colonne « Double authentification » dans **Comptes et droits**.
+
+**Interface**
+
+- Thème sombre automatique (selon le système) ou au choix via le bouton lune/soleil de l’en-tête, mémorisé par navigateur. Cartes CDI et QR codes restent sur fond clair.
+- Borne installable comme application (PWA) : bouton **Installer la borne**, ouverture en plein écran, écran maintenu allumé, bandeau en cas de coupure réseau, page de reconnexion automatique si le serveur redémarre et rechargement chaque nuit pour appliquer les mises à jour.
+- La case « deuxième heure » de la borne n’est plus collée au champ du code-barres.
+
+La migration `0005_account_security.sql` s’applique seule au démarrage. Aucune action n’est requise : la double authentification reste facultative.
+
 ## v1.3.0 · Affichage et sécurité
 
 **Affichage**

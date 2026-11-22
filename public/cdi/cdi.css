@@ -434,3 +434,26 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
   .top-links .sr-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
   .top-links .icon{width:18px;height:18px}
 }
+
+/* ── Sécurité du compte, thème et borne (v1.4) ─────────────────────────── */
+.notice.warning{background:#fff6e5;border-color:#f0d29a;color:#6b4a0c}
+.security-panel .panel-body{padding:16px 18px 18px}
+.security-panel .subtle{color:var(--muted)}
+.qr-box{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--canvas)}
+.qr-code{width:184px;height:184px;flex:none;border-radius:6px;background:#fff;padding:0}
+.qr-box>div{display:grid;gap:6px;min-width:0;flex:1 1 180px}
+.secret-key{font:600 1rem/1.5 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;word-break:break-all;user-select:all}
+.code-input{font:600 1.25rem/1.2 ui-monospace,Menlo,Consolas,monospace!important;letter-spacing:.2em;text-align:center}
+.steps{margin:0;padding-left:1.2em;display:grid;gap:4px;color:var(--muted)}
+.recovery-grid{list-style:none;margin:0;padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border:1px dashed var(--line);border-radius:8px;counter-reset:code}
+.recovery-grid code{display:block;text-align:center;font:600 1rem/1.4 ui-monospace,Menlo,Consolas,monospace;padding:6px;border-radius:4px;background:var(--canvas)}
+.mfa-step{display:grid;gap:14px}
+.theme-toggle .icon{width:19px;height:19px}
+.offline-banner{position:fixed;inset:auto 16px 16px;z-index:20;display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:8px;background:#5c1018;color:#fff;font-weight:700;box-shadow:0 6px 20px #0004}
+.kiosk-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+@media(max-width:560px){.recovery-grid{grid-template-columns:1fr}.qr-code{width:100%;height:auto;max-width:220px;margin-inline:auto}}
+.theme-toggle .sr-label{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+/* Borne : la case « deuxième heure » n'est plus collée au champ du code-barres. */
+#entry-form{display:grid;gap:14px}
+#entry-form .button-row{margin:4px 0 16px}
+#entry-form .check-line{margin:0}

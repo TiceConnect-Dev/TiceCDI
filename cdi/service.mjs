@@ -1,6 +1,7 @@
 import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maintain, maxEnvelopeBytes, noticeData,
   privacySettings, privateStatistics, publicPlanning, recoveryState, recoveryStatements, scrubLegacy, studentFile, taskStatement } from "./privacy.mjs";
 import { audit, auditRows } from "./audit.mjs";
+import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
@@ -129,18 +130,27 @@ async function kioskSettings(m) {
 function publicAccount(row) {
   return { id: row.id, username: row.username, name: row.name, admin: Boolean(row.admin), rights: row.admin ? RIGHTS : JSON.parse(row.permissions) };
 }
-async function authenticate(m, request) {
-  const token = request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_session=([a-f0-9]{64})(?:;|$)/)?.[1];
-  if (!token) return null;
-  const row = await m.one("SELECT a.* FROM sessions t JOIN accounts a ON a.id=t.account_id WHERE t.token=? AND t.expires_at>?", await digest(token), Date.now());
-  return row ? publicAccount(row) : null;
+function sessionCookie(request) {
+  return request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_session=([a-f0-9]{64})(?:;|$)/)?.[1] ?? null;
 }
-async function openSession(m, request, accountId) {
+async function authenticate(m, request) {
+  const token = sessionCookie(request);
+  if (!token) return null;
+  const key = await digest(token);
+  const now = Date.now();
+  const row = await m.one("SELECT a.*,t.last_seen AS session_seen FROM sessions t JOIN accounts a ON a.id=t.account_id WHERE t.token=? AND t.expires_at>?", key, now);
+  if (!row) return null;
+  // Dernière activité mise à jour au plus une fois par minute.
+  if (row.session_seen < now - 60_000) await m.run("UPDATE sessions SET last_seen=? WHERE token=?", now, key);
+  return publicAccount(row);
+}
+async function openSession(m, request, accountId, client = "") {
   const now = Date.now();
   const token = random(32);
   await m.batch([
     m.stmt("DELETE FROM sessions WHERE expires_at<=?", now),
-    m.stmt("INSERT INTO sessions VALUES (?,?,?)", await digest(token), accountId, now + 12 * HOUR),
+    m.stmt("INSERT INTO sessions (token,account_id,expires_at,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?)",
+      await digest(token), accountId, now + 12 * HOUR, now, now, agentSummary(request.headers.get("user-agent") ?? ""), String(client).slice(0, 64)),
   ]);
   return json({ ok: true }, 200, { "Set-Cookie": cookie(request, token, 12 * 3600) });
 }
@@ -286,7 +296,7 @@ async function dispatch(request, env, options) {
     const created = await m.run("INSERT INTO accounts SELECT ?,?,?,?,?,1 WHERE NOT EXISTS (SELECT 1 FROM accounts)", accountId, login, name, secret, "[]");
     if (!changes(created)) fail(409, "Un compte administrateur existe déjà.");
     if (options.hosted && data.demo) await importStudents(m, { rows: demoRows });
-    return openSession(m, request, accountId);
+    return openSession(m, request, accountId, client);
   }
   if (method === "POST" && path === "/api/auth/login") {
     const data = await payload(request);
@@ -296,9 +306,24 @@ async function dispatch(request, env, options) {
     const account = await m.one("SELECT * FROM accounts WHERE username=?", login);
     const candidate = typeof data.password === "string" ? data.password.slice(0, 161) : "";
     const verified = await verifyPassword(candidate, account?.secret);
-    if (!account || !verified.ok) fail(401, "Identifiant ou mot de passe incorrect.");
+    const trace = { poste: client, navigateur: agentSummary(request.headers.get("user-agent") ?? "") };
+    if (!account || !verified.ok) {
+      await m.batch([audit(m, { name: account?.name ?? "Identifiant inconnu" }, "securite", "Échec de connexion", account?.username ?? "Connexion", null, trace)]);
+      fail(401, "Identifiant ou mot de passe incorrect.");
+    }
+    const mfa = await m.one("SELECT * FROM account_mfa WHERE account_id=? AND secret IS NOT NULL", account.id);
+    if (mfa) {
+      if (!clean(data.code)) return json({ mfa: true });
+      await throttle(m, "mfa:" + account.id, 6, 10);
+      const factor = await consumeSecondFactor(m, account.id, mfa, data.code, clock);
+      if (!factor) {
+        await m.batch([audit(m, account, "securite", "Échec de la double authentification", account.username, null, trace)]);
+        fail(401, "Code de vérification incorrect.");
+      }
+      if (factor === "secours") await m.batch([audit(m, account, "securite", "Connexion avec un code de secours", account.username, null, trace)]);
+    }
     if (verified.upgrade) await m.run("UPDATE accounts SET secret=? WHERE id=? AND secret=?", await passwordHash(candidate), account.id, account.secret);
-    return openSession(m, request, account.id);
+    return openSession(m, request, account.id, client);
   }
   if (method === "POST" && path === "/api/auth/logout") {
     const token = request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_session=([a-f0-9]{64})(?:;|$)/)?.[1];
@@ -368,6 +393,10 @@ async function dispatch(request, env, options) {
   const me = await authenticate(m, request);
   if (!me) fail(401, "Connectez-vous pour accéder à cet espace.");
   const need = (...rights) => { if (!rights.some((right) => me.rights.includes(right))) fail(403, "Votre compte ne dispose pas de cet accès."); };
+  const token = sessionCookie(request);
+  const secured = await securityApi({ m, request, me, path, method, clock, json, fail, payload, audit, verifyPassword, cookie,
+    currentToken: token ? await digest(token) : "" });
+  if (secured) return secured;
   if (path==="/api/gestion/borne/activation" && method==="POST") {
     need("borne");
     const token=random(32);
@@ -724,7 +753,8 @@ async function dispatch(request, env, options) {
   }
   if (resource === "comptes") {
     need("comptes");
-    if (method === "GET" && !itemId) return json({ rows: (await m.list("SELECT * FROM accounts ORDER BY admin DESC,name")).map(publicAccount) });
+    if (method === "GET" && !itemId) return json({ rows: (await m.list(`SELECT a.*,EXISTS(SELECT 1 FROM account_mfa f WHERE f.account_id=a.id AND f.secret IS NOT NULL) AS mfa
+      FROM accounts a ORDER BY a.admin DESC,a.name`)).map((row) => ({ ...publicAccount(row), mfa: Boolean(row.mfa) })) });
     const target = itemId ? await m.one("SELECT * FROM accounts WHERE id=?", itemId) : null;
     if (itemId && !target) fail(404, "Compte introuvable.");
     if (target && !me.admin && (target.admin || publicAccount(target).rights.some((right) => !me.rights.includes(right)))) fail(403, "Ce compte ne peut pas être modifié avec vos droits.");
@@ -756,7 +786,7 @@ async function dispatch(request, env, options) {
         actions.push(audit(m,me,"confidentialite","Modification d’un compte ou de ses droits","Comptes",null,null,true));
         if (secret !== target.secret) actions.push(m.stmt("DELETE FROM sessions WHERE account_id=?", target.id));
         if (!changes((await m.batch(actions))[0])) fail(409, "Au moins un compte administrateur doit rester actif.");
-        if (secret !== target.secret && me.id === target.id) return openSession(m, request, target.id);
+        if (secret !== target.secret && me.id === target.id) return openSession(m, request, target.id, client);
       } else await m.batch([
         m.stmt("INSERT INTO accounts VALUES (?,?,?,?,?,?)", id(), login, name, secret, JSON.stringify(rights), Number(admin)),
         audit(m,me,"confidentialite","Création d’un compte","Comptes",null,null),

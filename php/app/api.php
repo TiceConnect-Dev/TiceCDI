@@ -54,7 +54,25 @@ function authResource(Store $db, string $path, string $method, int $clock, strin
         $password = is_string($data['password'] ?? null) ? mb_substr($data['password'], 0, 161, 'UTF-8') : '';
         $verified = verifyPassword($password, $account['secret'] ?? null);
         if (!$account || !$verified['ok']) {
+            $known = $account ? $db->one('SELECT name,username FROM accounts WHERE id=?', $account['id']) : null;
+            audit($db, ['name' => $known['name'] ?? 'Identifiant inconnu'], 'securite', 'Échec de connexion', $known['username'] ?? 'Connexion', null, loginTrace());
             fail(401, 'Identifiant ou mot de passe incorrect.');
+        }
+        $mfa = $db->one('SELECT * FROM account_mfa WHERE account_id=? AND secret IS NOT NULL', $account['id']);
+        if ($mfa) {
+            if (clean($data['code'] ?? null) === '') {
+                return ['mfa' => true];
+            }
+            throttle($db, 'mfa:' . $account['id'], 6, 10);
+            $profile = $db->one('SELECT name,username FROM accounts WHERE id=?', $account['id']);
+            $factor = consumeSecondFactor($db, $account['id'], $mfa, $data['code'], $clock);
+            if ($factor === '') {
+                audit($db, $profile, 'securite', 'Échec de la double authentification', $profile['username'], null, loginTrace());
+                fail(401, 'Code de vérification incorrect.');
+            }
+            if ($factor === 'secours') {
+                audit($db, $profile, 'securite', 'Connexion avec un code de secours', $profile['username'], null, loginTrace());
+            }
         }
         $upgraded = $verified['upgrade'] ? passwordSecret($password) : null;
         return $db->atomic(function () use ($db, $account, $clock, $upgraded): array {
@@ -139,6 +157,10 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     $me = authenticate($db, $clock);
     if (!$me) {
         fail(401, 'Connectez-vous pour accéder à cet espace.');
+    }
+    $secured = securityResource($db, $path, $method, $me, $clock);
+    if ($secured !== null) {
+        return $secured;
     }
     if ($path === '/api/gestion/borne/activation' && in_array($method, ['POST','DELETE'], true)) {
         need($me, 'borne');

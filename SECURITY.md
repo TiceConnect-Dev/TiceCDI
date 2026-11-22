@@ -10,7 +10,9 @@ N’ouvrez pas d’issue publique. Utilisez **Security → Report a vulnerabilit
 | --- | --- |
 | Comptes | Comptes nominatifs, droits par rubrique, au moins un administrateur conservé. Mot de passe de 12 caractères minimum. |
 | Mots de passe | PBKDF2-SHA256 à 600 000 itérations avec sel aléatoire. Anciennes empreintes converties à la connexion. Comparaison à temps constant, même pour un identifiant inconnu. |
-| Sessions | Jeton aléatoire de 256 bits stocké haché, cookie `HttpOnly`, `SameSite=Strict`, `Secure` en HTTPS, durée de 12 heures. Sessions fermées au changement de mot de passe. |
+| Double authentification | TOTP (RFC 6238, 30 s, 6 chiffres) facultatif par compte, anti-rejeu, 6 essais par 10 min, dix codes de secours hachés (SHA-256) à usage unique, réinitialisation par un administrateur. |
+| Sessions | Jeton aléatoire de 256 bits stocké haché, cookie `HttpOnly`, `SameSite=Strict`, `Secure` en HTTPS, durée de 12 heures. Sessions fermées au changement de mot de passe et à l’activation de la double authentification. Page **Sécurité du compte** pour voir et fermer ses sessions, vue globale pour les administrateurs. |
+| Traçabilité | Journal **Sécurité des comptes** : échecs de connexion et de double authentification avec poste et navigateur, codes de secours utilisés, changements de double authentification, fermetures de sessions. |
 | Tentatives | Limitation par poste (30 essais / 10 min) et par identifiant (12 essais / 10 min), clé d’installation limitée elle aussi. |
 | Requêtes | Contrôle d’origine et de `Sec-Fetch-Site` sur les écritures, corps JSON obligatoire, tailles bornées, requêtes SQL paramétrées. |
 | En-têtes | CSP sans script en ligne, `X-Frame-Options`, `Permissions-Policy`, COOP/CORP, `nosniff`, `X-Robots-Tag: noindex`, HSTS en HTTPS. |
@@ -24,6 +26,8 @@ N’ouvrez pas d’issue publique. Utilisez **Security → Report a vulnerabilit
 2. **Reverse proxy.** Mettez `CDI_TRUST_PROXY=1` uniquement si TiceCDI n’est joignable **que** par ce proxy. Gardez sinon la valeur `0`, car un client pourrait falsifier `X-Forwarded-For`.
 3. **Exposition réseau.** Laissez `CDI_BIND_IP=127.0.0.1` quand le proxy est sur la même machine. N’ouvrez pas le port 8080 sur Internet.
 4. **Accès réduit.** Si possible, limitez `/gestion` au réseau de l’établissement ou à un VPN au niveau du proxy.
-5. **Clé d’installation.** Créez le compte administrateur dès le premier démarrage, puis supprimez `installation.key` ou la variable `CDI_SETUP_KEY`.
-6. **Mises à jour.** Suivez les releases GitHub et mettez à jour l’image ou l’archive PHP. Pour PHP, utilisez une version maintenue (8.3 ou plus).
-7. **Sauvegardes.** Testez la restauration chiffrée et conservez la phrase secrète à part.
+5. **Double authentification.** Activez-la au minimum sur les comptes administrateurs (**Sécurité du compte**) et rangez les codes de secours hors du poste.
+6. **Surveillance.** Consultez régulièrement la rubrique **Sécurité des comptes** du journal pour repérer des échecs de connexion répétés.
+7. **Clé d’installation.** Créez le compte administrateur dès le premier démarrage, puis supprimez `installation.key` ou la variable `CDI_SETUP_KEY`.
+8. **Mises à jour.** Suivez les releases GitHub et mettez à jour l’image ou l’archive PHP. Pour PHP, utilisez une version maintenue (8.3 ou plus).
+9. **Sauvegardes.** Testez la restauration chiffrée et conservez la phrase secrète à part.

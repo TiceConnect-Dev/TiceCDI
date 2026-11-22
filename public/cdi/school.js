@@ -218,8 +218,8 @@ export async function renderGroups(target,{section,dialogForm,toast}) {
   });
 }
 
-const areaNames={confidentialite:"Données personnelles",planning:"Planning",horaires:"Horaires et borne",seances:"Fiches d’appel",groupes:"Groupes hors classe",annees:"Années scolaires",presences:"Présences",sauvegarde:"Sauvegardes"};
-const fieldNames={day:"Date",start_min:"Début",end_min:"Fin",title:"Titre",kind:"Type",class_id:"Référence de classe",group_id:"Référence de groupe",notes:"Notes",open:"Borne ouverte",second_hour:"Deuxième heure",hide_weekend:"Week-end masqué",capacity:"Capacité",use_hours:"Application des horaires",message:"Message",expiration:"Départ prévu",sauvegarde_du:"Date de la sauvegarde"};
+const areaNames={confidentialite:"Données personnelles",planning:"Planning",horaires:"Horaires et borne",seances:"Fiches d’appel",groupes:"Groupes hors classe",annees:"Années scolaires",presences:"Présences",sauvegarde:"Sauvegardes",securite:"Sécurité des comptes"};
+const fieldNames={day:"Date",start_min:"Début",end_min:"Fin",title:"Titre",kind:"Type",class_id:"Référence de classe",group_id:"Référence de groupe",notes:"Notes",open:"Borne ouverte",second_hour:"Deuxième heure",hide_weekend:"Week-end masqué",capacity:"Capacité",use_hours:"Application des horaires",message:"Message",expiration:"Départ prévu",sauvegarde_du:"Date de la sauvegarde",poste:"Poste",navigateur:"Navigateur"};
 function auditData(raw) {
   if(!raw) return "—";
   const parsed=JSON.parse(raw);

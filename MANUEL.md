@@ -28,6 +28,23 @@ Sur le poste dédié, ouvrez **Activation de la borne**, choisissez **Activer ce
 
 Sur la borne, scannez la carte CDI ou saisissez son code. L’élève choisit **Entrée** ou **Sortie**. Une douchette Code 128 en mode clavier HID avec suffixe Entrée peut valider l’entrée depuis le champ. La borne efface la saisie après chaque pointage et la confirmation disparaît au bout de cinq secondes. Elle n’affiche ni nom, ni annuaire, ni liste des présents.
 
+### Installer la borne comme application
+
+En HTTPS, la borne peut être installée comme une application : après l’activation du poste, choisissez **Installer la borne** (Chrome, Edge) ou le menu du navigateur **Installer l’application**. Elle s’ouvre alors en plein écran sur la page de pointage, garde l’écran allumé et affiche un bandeau si le réseau tombe. Si le serveur redémarre, une page **Connexion au serveur perdue** s’affiche et la borne revient seule dès que le service répond. Elle se recharge chaque nuit vers 4 h pour appliquer les mises à jour.
+
+### Sécurité du compte
+
+Chaque agent dispose de la rubrique **Sécurité du compte** :
+
+1. **Activer la double authentification** : saisissez votre mot de passe, scannez le QR code avec une application d’authentification (Microsoft Authenticator, Google Authenticator, FreeOTP, Aegis…) puis entrez le code à 6 chiffres affiché.
+2. **Conservez les dix codes de secours** (copie ou téléchargement). Chacun ne sert qu’une fois et remplace le téléphone en cas de perte. **Nouveaux codes de secours** invalide les anciens.
+3. À la connexion suivante, TiceCDI demande le code de l’application après le mot de passe. Un code de secours s’écrit sous la forme `xxxx-xxxx`.
+4. **Mes sessions ouvertes** liste les navigateurs connectés à votre compte : fermez une session inconnue ou **Fermez les autres sessions**.
+
+Un administrateur voit les sessions de tous les comptes et peut les fermer. Si un agent perd son téléphone et ses codes, l’administrateur choisit **Réinitialiser la 2FA** dans **Comptes et droits** : l’agent se reconnecte avec son mot de passe puis réactive la double authentification.
+
+Le bouton lune/soleil de l’en-tête bascule entre thème clair et sombre. Sans choix, TiceCDI suit le réglage du système.
+
 ## 3. Présences, planning et appel interne
 
 Un pointage à 8 h 30 expire à 9 h. L’option deuxième heure, si l’établissement l’autorise, ou la prolongation d’un créneau par le personnel, porte cette échéance à 10 h. La liste des présents se recalcule côté serveur. Dans le dossier individuel, **Créneau expiré** désigne une échéance atteinte. **Sortie enregistrée** désigne une action de sortie.
@@ -50,7 +67,7 @@ Le réglage **0 jour supplémentaire** conserve les passages jusqu’à la fin d
 
 La tâche enregistre les totaux journaliers et les durées agrégées avant de retirer le nominatif. Les statistiques affichées regroupent les jours à faible effectif et ne présentent pas de découpage par classe, matière ou élève. Pour afficher un détail journalier, chaque jour présenté doit contenir un groupe vérifié d’au moins cinq élèves distincts. Si au moins un tel groupe existe sur la période, un total regroupé est possible. Ce seuil et les restrictions d’accès limitent la réidentification.
 
-Sous Docker la tâche tourne au démarrage puis toutes les minutes. Sous PHP programmez [la tâche CLI](docs/INSTALLATION-PHP.md#programmer-la-purge). Le tableau de bord affiche le dernier succès. Le journal consigne les changements de droits, les opérations d’export, les restaurations et les effacements, avec une durée dédiée. Réservez les champs libres du planning et le message de la borne aux informations de service.
+Sous Docker la tâche tourne au démarrage puis toutes les minutes. Sous PHP programmez [la tâche CLI](docs/INSTALLATION-PHP.md#programmer-la-purge). Le tableau de bord affiche le dernier succès. Le journal consigne les changements de droits, les échecs de connexion et les opérations de double authentification (rubrique **Sécurité des comptes**), les opérations d’export, les restaurations et les effacements, avec une durée dédiée. Réservez les champs libres du planning et le message de la borne aux informations de service.
 
 ## 6. Sauvegardes et restauration
 

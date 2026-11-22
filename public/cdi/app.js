@@ -2,7 +2,8 @@ import { renderPrivacy, renderNotice, renderDossier } from "./privacy.js";
 import { renderBackup, renderGroups, renderJournal, renderSessions, renderYears, startCall } from "./school.js";
 import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
-import { routePath, urlFor, brand, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today } from "./shared.js";
+import { routePath, urlFor, brand, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
+import { renderSecurity } from "./account.js";
 
 const app = document.querySelector("#app");
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -15,7 +16,7 @@ const box = (symbol) => `<span class="icon-box">${icon(symbol)}</span>`;
 const pill = (text, tone = "") => `<span class="pill ${tone ? "pill-" + tone : ""}">${e(text)}</span>`;
 
 function header(area = "home", canActivate = false) {
-  const links=`<a href="${urlFor("/notice")}" title="Données personnelles">${icon("info")}<span class="sr-label">Données personnelles</span></a>`+
+  const links=themeButton()+`<a href="${urlFor("/notice")}" title="Données personnelles">${icon("info")}<span class="sr-label">Données personnelles</span></a>`+
     (area==="admin" ? `${canActivate?`<a href="${urlFor("/gestion/borne-poste")}" title="Activer la borne">${icon("scan")}<span class="sr-label">Activer la borne</span></a>`:""}
       <button id="logout" type="button" title="Déconnexion">${icon("logout")}<span class="sr-label">Déconnexion</span></button>`
       : `<a href="${urlFor("/gestion")}" title="Espace personnel">${icon("lock")}<span class="sr-label">Espace personnel</span></a>`);
@@ -51,7 +52,8 @@ function kiosk() {
           <label class="check-line" id="second-hour"><input type="checkbox" id="two-hours"> Rester jusqu’à la deuxième heure pleine</label>
           <div class="button-row"><button class="btn primary" id="entry-submit" type="submit" name="direction" value="entree">Entrée</button>
             <button class="btn secondary" type="submit" name="direction" value="sortie">Sortie</button>
-            <button type="button" class="btn secondary" id="kiosk-fullscreen">Plein écran</button></div>
+            <button type="button" class="btn secondary" id="kiosk-fullscreen">Plein écran</button>
+            <button type="button" class="btn secondary" id="kiosk-install" hidden>${icon("download")}Installer la borne</button></div>
         </form><div id="entry-message" role="status" aria-live="polite" aria-atomic="true"></div></div>
     </section></main>${footer}</div>`;
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
@@ -116,6 +118,49 @@ function kiosk() {
   });
   refresh();
   setInterval(refresh,5000);
+  kioskApp();
+}
+
+// Borne en application (PWA) : installation, écran toujours allumé, reconnexion et mise à jour automatiques.
+let installPrompt;
+addEventListener("beforeinstallprompt",event=>{
+  event.preventDefault();
+  installPrompt=event;
+  const control=$("#kiosk-install");
+  if(control) control.hidden=false;
+});
+function kioskApp() {
+  navigator.serviceWorker?.register(urlFor("/sw.js")).catch(()=>{});
+  const install=$("#kiosk-install");
+  install.hidden=!installPrompt;
+  install.addEventListener("click",async()=>{
+    if(!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(()=>null);
+    installPrompt=null;
+    install.hidden=true;
+  });
+  let lock=null;
+  const keepAwake=async()=>{
+    if(document.visibilityState!=="visible" || lock || !navigator.wakeLock) return;
+    try { lock=await navigator.wakeLock.request("screen"); lock.addEventListener("release",()=>{lock=null;}); } catch { lock=null; }
+  };
+  keepAwake();
+  document.addEventListener("visibilitychange",keepAwake);
+  const banner=document.createElement("div");
+  banner.className="offline-banner";
+  banner.setAttribute("role","alert");
+  banner.hidden=true;
+  banner.innerHTML=`${icon("warning")}<span>Réseau indisponible · reconnexion automatique…</span>`;
+  document.body.append(banner);
+  const network=()=>{ banner.hidden=navigator.onLine; };
+  addEventListener("online",()=>{ network(); keepAwake(); });
+  addEventListener("offline",network);
+  network();
+  // Rechargement chaque nuit vers 4 h pour appliquer les mises à jour de l'application sans intervention.
+  const next=new Date(); next.setHours(4,0,0,0);
+  if(next<=new Date()) next.setDate(next.getDate()+1);
+  setTimeout(()=>location.reload(),next-new Date());
 }
 
 function login(status) {
@@ -126,8 +171,12 @@ function login(status) {
     <form id="login-form" class="stack">
       ${status.setup && status.keyRequired ? '<label class="field"><span>Clé d’installation</span><input name="key" type="password" required autocomplete="off"><small>La clé est dans les journaux Docker ou dans le dossier privé de l’installation PHP.</small></label>' : ""}
       ${status.setup ? '<label class="field"><span>Nom d’affichage</span><input name="name" placeholder="Ex. Thomas Luc" maxlength="100" required autocomplete="name"></label>' : ""}
+      <div id="password-step" class="stack">
       <label class="field"><span>Identifiant</span><input name="username" autocomplete="username" maxlength="80" required></label>
       <label class="field"><span>Mot de passe</span><input name="password" type="password" autocomplete="${status.setup ? "new-password" : "current-password"}" required maxlength="160" ${status.setup ? 'minlength="12"' : ""}>${status.setup ? "<small>12 caractères au minimum.</small>" : ""}</label>
+      </div>
+      ${status.setup ? "" : `<div id="mfa-step" class="mfa-step" hidden>${notice("Votre compte est protégé par la double authentification.", "", "shield")}
+        <label class="field"><span>Code de vérification</span><input name="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="123 456"><small>Code à 6 chiffres de votre application, ou un code de secours (xxxx-xxxx).</small></label></div>`}
       ${status.setup && status.demoAllowed ? '<label class="check-line"><input name="demo" type="checkbox" checked> Ajouter des élèves fictifs pour essayer la borne</label>' : ""}
       <div id="login-error" aria-live="polite" hidden></div>
       <button class="btn primary" type="submit">${icon(status.setup ? "check" : "login")} ${status.setup ? "Créer mon compte" : "Se connecter"}</button>
@@ -141,8 +190,25 @@ function login(status) {
     const target = $("#login-error");
     submit.disabled = true;
     target.hidden = true;
-    try { await api("/auth/" + (status.setup ? "setup" : "login"), "POST", data); location.assign(urlFor("/gestion")); }
-    catch (error) { target.innerHTML = notice(error.message, "error"); target.hidden = false; submit.disabled = false; }
+    try {
+      const result = await api("/auth/" + (status.setup ? "setup" : "login"), "POST", data);
+      if (result.mfa) {
+        // Deuxième étape : code de l’application d’authentification ou code de secours.
+        $("#mfa-step", form).hidden = false;
+        $("#password-step", form).hidden = true;
+        const code = form.elements.code;
+        code.required = true;
+        code.focus();
+        submit.innerHTML = icon("check") + " Vérifier";
+        submit.disabled = false;
+        return;
+      }
+      location.assign(urlFor("/gestion"));
+    }
+    catch (error) {
+      target.innerHTML = notice(error.message, "error"); target.hidden = false; submit.disabled = false;
+      if (error.status === 401 && form.elements.code && !$("#mfa-step", form).hidden) { form.elements.code.value = ""; form.elements.code.focus(); }
+    }
   });
 }
 
@@ -171,9 +237,10 @@ const tabs = [
   ["confidentialite", "Établissement et données personnelles", "lock", ["admin"]],
   ["dossiers", "Dossiers individuels", "users", ["donnees"]],
   ["borne-poste", "Activation de la borne", "scan", ["borne"]],
+  ["securite", "Sécurité du compte", "shield", ["self"]],
 ];
 let me, view, records = [], classes = [], activeFilters = { q:"", class:"", archived:"" }, toastTimer, refreshTimer, rosterVersion = 0;
-const can = (right) => right === "admin" ? me.admin : me.rights.includes(right);
+const can = (right) => right === "self" || (right === "admin" ? me.admin : me.rights.includes(right));
 const gestion = (resource, method, body) => api("/gestion/" + resource, method, body);
 const rowAction = (text, glyph, action, id, mode = "secondary tiny") => button(text, glyph, `data-action="${action}" data-id="${e(id)}"`, mode);
 const classOptions = () => classes.map((row) => `<option value="${e(row.id)}" ${row.id === activeFilters.class ? "selected" : ""}>${e(row.name)}</option>`).join("");
@@ -255,6 +322,8 @@ async function render() {
     await renderSessions($("#main"),{section,dialogForm,toast,canExport:can("export")});
   } else if (view === "groupes") {
     await renderGroups($("#main"),{section,dialogForm,toast});
+  } else if (view === "securite") {
+    await renderSecurity($("#main"),{section,toast,me});
   } else if (view === "journal") {
     await renderJournal($("#main"),{section,toast});
   } else if (view === "sauvegarde") {
@@ -293,11 +362,12 @@ async function render() {
     records = (await gestion("comptes")).rows;
     $("#main").innerHTML = section("Comptes et droits", "Attribuez les accès au personnel du CDI, à la vie scolaire et aux autres services.", button("Créer un compte", "plus", 'data-action="account-new"', "primary"))
       + '<section class="panel table-panel"><div class="table-top"><h2>Comptes du personnel</h2></div>'
-      + table(["Compte", "Accès", "Actions"], records.map((row) => {
+      + table(["Compte", "Accès", "Double authentification", "Actions"], records.map((row) => {
         const editable = me.admin || (!row.admin && row.id !== me.id && row.rights.every(can));
         return `<tr><td><strong>${e(row.name)}</strong><small>${e(row.username)}${row.id === me.id ? " · Votre compte" : ""}</small></td>
           <td class="multiline">${row.admin ? pill("Administrateur") : e(row.rights.map((right) => rightNames[right]).join(", "))}</td>
-          <td>${editable ? `<div class="button-row">${rowAction("Modifier","edit","account-edit",row.id)}${row.id !== me.id ? rowAction("Supprimer","trash","account-delete",row.id,"danger tiny") : ""}</div>` : "—"}</td></tr>`;
+          <td>${row.mfa ? pill("Activée","green") : pill("Non","gray")}</td>
+          <td>${editable ? `<div class="button-row">${rowAction("Modifier","edit","account-edit",row.id)}${me.admin && row.mfa && row.id !== me.id ? rowAction("Réinitialiser la 2FA","refresh","account-mfa-reset",row.id) : ""}${row.id !== me.id ? rowAction("Supprimer","trash","account-delete",row.id,"danger tiny") : ""}</div>` : "—"}</td></tr>`;
       })) + "</section>";
   }
 }
@@ -647,6 +717,7 @@ function actionHandler(event) {
   if (action === "student-restore" && record) confirmDialog("Réactiver la fiche élève", `${record.first_name} ${record.last_name} pourra à nouveau utiliser son code CDI.`, "Réactiver", () => gestion("eleves/" + id, "PATCH", { ...record, reactivate:true }), "Fiche réactivée.", fetchStudents, false);
   if (action === "student-delete" && record) confirmDialog("Retirer l’élève", `${record.first_name} ${record.last_name} ne pourra plus pointer à la borne. Sa présence en cours prendra fin.`, "Retirer", () => gestion("eleves/" + id, "DELETE"), "Élève retiré de la borne.", fetchStudents);
   if (action === "class-delete" && classRow) confirmDialog("Supprimer la classe", `Confirmez la suppression de la classe ${classRow.name}.`, "Supprimer", () => gestion("classes/" + id, "DELETE"), "Classe supprimée.");
+  if (action === "account-mfa-reset" && record && me.admin) confirmDialog("Réinitialiser la double authentification", `${record.name} pourra se connecter avec son seul mot de passe puis réactiver la double authentification. Ses sessions ouvertes seront fermées.`, "Réinitialiser", () => gestion("comptes/" + id + "/double-authentification", "DELETE"), "Double authentification réinitialisée.");
   if (action === "account-delete" && record) confirmDialog("Supprimer le compte", `Le compte de ${record.name} perdra immédiatement son accès.`, "Supprimer", () => gestion("comptes/" + id, "DELETE"), "Compte supprimé.");
   if (action === "exclude-lift" && record) confirmDialog("Lever l’exclusion", `Confirmez la levée de cette exclusion pour ${record.first_name} ${record.last_name}.`, "Lever l’exclusion", () => gestion("exclusions/" + id, "DELETE"), "Exclusion levée.", render, false);
   if (action === "visit-extend" && record && can("sorties")) {

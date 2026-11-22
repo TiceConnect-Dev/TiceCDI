@@ -29,6 +29,9 @@ const shapes = {
   chevron: '<path d="m9 6 6 6-6 6"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   warning: '<path d="M12 3 2 20h20L12 3zm0 6v5m0 3h.01"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  shield: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/>',
 };
 export const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shapes[name]}</svg>`;
 const escapes = { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" };
@@ -49,6 +52,38 @@ export function brand(square=false,hero=false) {
     ${hero?"":`<source media="(max-width: 560px)" srcset="${mark}">`}
     <img src="${wordmark}" width="1200" height="376" alt="${hero?"TiceCDI — Une application de TiceConnect":"TiceCDI"}"></picture>`;
 }
+
+// Thème clair ou sombre : choix mémorisé sur ce navigateur, sinon réglage du système.
+const themeKey = "ticecdi-theme";
+const systemDark = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+function storedTheme() { try { return localStorage.getItem(themeKey); } catch { return null; } }
+export function currentTheme() {
+  const stored = storedTheme();
+  return stored === "dark" || stored === "light" ? stored : (systemDark?.matches ? "dark" : "light");
+}
+const themeControl = (theme) => icon(theme === "dark" ? "sun" : "moon") + `<span class="sr-label">${theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre"}</span>`;
+function applyTheme() {
+  if (!globalThis.document) return;
+  const theme = currentTheme();
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0d1020" : "#000091");
+  for (const control of document.querySelectorAll("[data-theme-toggle]")) {
+    control.innerHTML = themeControl(theme);
+    control.title = theme === "dark" ? "Thème clair" : "Thème sombre";
+  }
+}
+export function themeButton() {
+  const theme = currentTheme();
+  return `<button type="button" class="theme-toggle" data-theme-toggle title="${theme === "dark" ? "Thème clair" : "Thème sombre"}">${themeControl(theme)}</button>`;
+}
+export function toggleTheme() {
+  try { localStorage.setItem(themeKey, currentTheme() === "dark" ? "light" : "dark"); } catch { /* navigateur sans stockage */ }
+  applyTheme();
+}
+applyTheme();
+systemDark?.addEventListener?.("change", applyTheme);
+globalThis.document?.addEventListener("click", (event) => { if (event.target.closest?.("[data-theme-toggle]")) toggleTheme(); });
+export const refreshThemeControls = applyTheme;
 
 const phpEntry = globalThis.document?.querySelector('meta[name="cdi-entry"]')?.content;
 

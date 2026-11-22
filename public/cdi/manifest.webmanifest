@@ -1,0 +1,19 @@
+{
+  "name": "TiceCDI · Borne de pointage",
+  "short_name": "TiceCDI",
+  "description": "Borne de pointage du CDI : entrées et sorties des élèves.",
+  "lang": "fr",
+  "id": "../borne",
+  "start_url": "../borne",
+  "scope": "../",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#000091",
+  "theme_color": "#000091",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

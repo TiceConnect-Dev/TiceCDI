@@ -232,7 +232,8 @@ function accountsResource(Store $db, string $method, ?string $id, array $me, int
 {
     need($me, 'comptes');
     if ($method === 'GET' && $id === null) {
-        return ['rows' => array_map('publicAccount', $db->all('SELECT * FROM accounts ORDER BY admin DESC,name'))];
+        $rows = $db->all('SELECT a.*,EXISTS(SELECT 1 FROM account_mfa f WHERE f.account_id=a.id AND f.secret IS NOT NULL) AS mfa FROM accounts a ORDER BY a.admin DESC,a.name');
+        return ['rows' => array_map(static fn ($row) => publicAccount($row) + ['mfa' => (bool) $row['mfa']], $rows)];
     }
     $target = $id === null ? null : $db->one('SELECT * FROM accounts WHERE id=?', $id);
     if ($id !== null && !$target) {

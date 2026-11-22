@@ -1,0 +1,80 @@
+/* Fichier généré par scripts/build-dark-theme.py à partir de cdi.css : ne pas modifier à la main. */
+@media screen{
+html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#a6acc4;--line:#2d3252;--canvas:#0d1020;--pale:#1d2245;--white:#161a2d;--green:#5fd09a;--red:#ff8189;--shadow:0 4px 14px #00000059;--blue-fill:#4652d8}
+  html[data-theme="dark"] :focus-visible{outline:3px solid #788eed}
+  html[data-theme="dark"] .skip{background:#14151a}
+  html[data-theme="dark"] .tricolor i{background:#0000b8}
+  html[data-theme="dark"] .tricolor i:nth-child(2){background:#1a1c30}
+  html[data-theme="dark"] .tricolor i:nth-child(3){background:#d61f2a}
+  html[data-theme="dark"] .masthead{background:#14151a;border-bottom:1px solid #212332}
+  html[data-theme="dark"] .top-links a,html[data-theme="dark"] .top-links button{background:#14151a;border:1px solid #1f213a}
+  html[data-theme="dark"] .kiosk-intro{background:var(--blue-fill)}
+  html[data-theme="dark"] .kiosk-book{background:#ffffff19;border:1px solid #ffffff4a}
+  html[data-theme="dark"] .kiosk-intro p{color:#141426}
+  html[data-theme="dark"] .panel{background:#14151a}
+  html[data-theme="dark"] .field input,html[data-theme="dark"] .field select,html[data-theme="dark"] .field textarea,html[data-theme="dark"] .input{border:1px solid #373f57;background:#14151a}
+  html[data-theme="dark"] .field input::placeholder,html[data-theme="dark"] .input::placeholder{color:#727d9a}
+  html[data-theme="dark"] .with-icon .icon{color:#8991b1}
+  html[data-theme="dark"] .primary{background:var(--blue-fill)}
+  html[data-theme="dark"] .primary:hover{background:#2525ac}
+  html[data-theme="dark"] .secondary{background:#14151a;border-color:#21253d}
+  html[data-theme="dark"] .secondary:hover{border-color:#292a4c}
+  html[data-theme="dark"] .danger{background:#14151a;border-color:#412327}
+  html[data-theme="dark"] .danger:hover{background:#271515}
+  html[data-theme="dark"] .result-item{background:#14151a}
+  html[data-theme="dark"] .notice{background:#141425}
+  html[data-theme="dark"] .notice.success{background:#1a3025;color:#84e1bb}
+  html[data-theme="dark"] .notice.error{background:#2a1618;color:#e97c84}
+  html[data-theme="dark"] .footer{background:#14151a}
+  html[data-theme="dark"] .sidebar{background:#14151a}
+  html[data-theme="dark"] .side-link{color:#939cbd}
+  html[data-theme="dark"] .metric{background:#14151a}
+  html[data-theme="dark"] th,html[data-theme="dark"] td{border-top:1px solid #1d2130}
+  html[data-theme="dark"] th{background:#161929;color:#8f99b4}
+  html[data-theme="dark"] .pill{background:#161828}
+  html[data-theme="dark"] .pill-green{background:#1b3124;color:#85e0ba}
+  html[data-theme="dark"] .pill-gray{background:#191e2b;color:#9299af}
+  html[data-theme="dark"] .pill-red{background:#2a1719;color:#e58088}
+  html[data-theme="dark"] .import-aside code{background:#161628}
+  html[data-theme="dark"] .file-box{border:2px dashed #292d4c;background:#121222}
+  html[data-theme="dark"] .file-box input::file-selector-button{background:#14151a;border:1px solid #292d4a}
+  html[data-theme="dark"] .dialog::backdrop{background:#babada79}
+  html[data-theme="dark"] .group-roster .check-line:nth-child(odd){background:#141424}
+  html[data-theme="dark"] .stat-bar progress{background:#171c2b}
+  html[data-theme="dark"] .stat-bar progress::-webkit-progress-bar{background:#171c2b}
+  html[data-theme="dark"] .stat-bar progress::-webkit-progress-value{background:#4043b4}
+  html[data-theme="dark"] .stat-bar progress::-moz-progress-bar{background:#4043b4}
+  html[data-theme="dark"] .cal-corner,html[data-theme="dark"] .cal-day{background:#151828}
+  html[data-theme="dark"] .cal-column{background:repeating-linear-gradient(to bottom,transparent 0,transparent calc(var(--hour-height) / 2 - 1px),#1a1f31 calc(var(--hour-height) / 2 - 1px),#1a1f31 calc(var(--hour-height) / 2)),#131623}
+  html[data-theme="dark"] .cal-day.cal-today{background:#16172a}
+  html[data-theme="dark"] .cal-column.cal-today{background-color:#141525}
+  html[data-theme="dark"] .cal-ruler span{background:#14151a}
+  html[data-theme="dark"] .cal-open{background:#ffffffa6;border-left:2px solid #3a6c52}
+  html[data-theme="dark"] .cal-cours{--slot-bg:#16182a;--slot-ink:#888add;--slot-line:#8a8ddb}
+  html[data-theme="dark"] .cal-atelier{--slot-bg:#1b3324;--slot-ink:#86dfb8;--slot-line:#8fd6b8}
+  html[data-theme="dark"] .cal-reservation{--slot-bg:#342c1c;--slot-ink:#e7bc7e;--slot-line:#e3bd82}
+  html[data-theme="dark"] .cal-fermeture{--slot-bg:#2c1819;--slot-ink:#e0858b;--slot-line:#dc898f}
+  html[data-theme="dark"] .cal-autre{--slot-bg:#181c2c;--slot-ink:#969ab6;--slot-line:#777f97}
+  html[data-theme="dark"] .cal-now{border-top:2px solid #e67f90}
+  html[data-theme="dark"] .display-head{background:var(--blue-fill)}
+  html[data-theme="dark"] .display-head p{color:#16172a}
+  html[data-theme="dark"] .display-tools .btn[aria-pressed=true]{background:#191a2f;border-color:#14151a}
+  html[data-theme="dark"] .display-page .cal-scroll{background:#14151a}
+  html[data-theme="dark"] .kiosk-capacity{background:#1c3325;color:#89dcbd}
+  html[data-theme="dark"] .kiosk-capacity[data-full=true]{background:#2f191a;color:#df8694}
+  html[data-theme="dark"] .display-gauge{background:#14151a}
+  html[data-theme="dark"] .audit-grid section{background:#141725}
+  html[data-theme="dark"] .home-subtitle{color:#80aae5}
+  html[data-theme="dark"] #kiosk-state{color:#80aae5}
+  html[data-theme="dark"] .accessible-planning{background:#14151a;color:#80aae5}
+  html[data-theme="dark"] :focus-visible{outline:3px solid #71b0f4}
+  html[data-theme="dark"] /* ── Sécurité du compte,html[data-theme="dark"] thème et borne (v1.4) ─────────────────────────── */
+.notice.warning{background:#2c2518;border-color:#5c4e32;color:#f0c575}
+  html[data-theme="dark"] .offline-banner{background:#9c1b29}
+  html[data-theme="dark"] body{background:var(--canvas)}
+  html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
+  html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}
+  html[data-theme="dark"] .masthead .tice-wordmark{background:#fff;padding:5px 8px;border-radius:6px}
+  html[data-theme="dark"] .tice-hero-logo{background:#fff;padding:14px 18px;border-radius:10px}
+  html[data-theme="dark"] :focus-visible{outline-color:#9aa6ff}
+}

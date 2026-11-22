@@ -73,6 +73,8 @@ client_max_body_size 24m;
 
 **Derrière un reverse proxy.** Renseigne `CDI_ORIGIN` avec l’adresse HTTPS publique. Mets `CDI_TRUST_PROXY` à `'1'` seulement si le serveur PHP n’est joignable que par ce proxy : la limitation des tentatives de connexion utilise alors l’adresse réelle transmise dans `X-Forwarded-For`.
 
+**Borne installable (PWA).** Le service worker est servi par `index.php?route=/sw.js` et le manifeste par `cdi/manifest.webmanifest`. L’installation de la borne et le maintien de l’écran allumé exigent HTTPS. Si le serveur renvoie le manifeste en `text/plain`, ajoute `AddType application/manifest+json .webmanifest` dans la configuration Apache (ou `application/manifest+json webmanifest;` dans `mime.types` pour Nginx).
+
 **PHP.** Utilise une version maintenue, laisse `display_errors=Off` en production et, si possible, `expose_php=Off` dans `php.ini`. Après la création du compte administrateur, supprime `installation.key` du dossier privé.
 
 ## Programmer la purge

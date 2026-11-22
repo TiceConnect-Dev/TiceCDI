@@ -13,6 +13,7 @@ import { openDatabase } from "../standalone/sqlite.mjs";
 import { maintain } from "../cdi/privacy.mjs";
 import { model } from "../cdi/service.mjs";
 import { csvRows } from "../public/cdi/shared.js";
+import { totp } from "../cdi/security.mjs";
 
 const root=mkdtempSync(join(tmpdir(),"ticecdi-smoke-"));
 const php=process.env.PHP_BIN || "php";
@@ -295,10 +296,56 @@ async function verifyLayout(hosts) {
   } finally {await browser.close();}
 }
 
+// Double authentification, codes de secours, sessions actives et traces de connexion.
+async function accountSecurity(host) {
+  const user="mfa."+host.kind, userPassword="Mot de passe double facteur 2026";
+  await host.post("/gestion/comptes",{username:user,name:"Compte 2FA",password:userPassword,admin:false,rights:["planning"]});
+  const accountId=(await host.get("/gestion/comptes")).rows.find(row=>row.username===user).id;
+  await host.call("/auth/login",{method:"POST",body:{username:user,password:"mauvais"},session:"",expected:401});
+  const session=await host.login(user,userPassword);
+  await host.post("/gestion/securite/totp",{password:"mauvais"},session,403);
+  const {secret,uri}=await host.post("/gestion/securite/totp",{password:userPassword},session);
+  assert.match(secret,/^[A-Z2-7]{32}$/);
+  assert.ok(uri.startsWith("otpauth://totp/TiceCDI%3A"+user+"?secret="+secret));
+  const step=Math.floor(Date.now()/30000);
+  await host.post("/gestion/securite/totp/activation",{code:"000000"===await totp(secret,step)?"111111":"000000"},session,400);
+  const {codes}=await host.post("/gestion/securite/totp/activation",{code:await totp(secret,step)},session);
+  assert.equal(codes.length,10);
+  assert.match(codes[0],/^[a-z2-9]{4}-[a-z2-9]{4}$/);
+  let state=await host.get("/gestion/securite",session);
+  assert.equal(state.mfa.enabled,true); assert.equal(state.mfa.recovery_left,10);
+  assert.equal(state.sessions.filter(row=>row.current).length,1);
+  assert.ok((await host.get("/gestion/comptes")).rows.find(row=>row.id===accountId).mfa);
+  const pending=await host.call("/auth/login",{method:"POST",body:{username:user,password:userPassword},session:""});
+  assert.deepEqual(pending.payload,{mfa:true}); assert.equal(pending.cookies.length,0);
+  await host.call("/auth/login",{method:"POST",body:{username:user,password:userPassword,code:"12345"},session:"",expected:401});
+  const rescue=await host.call("/auth/login",{method:"POST",body:{username:user,password:userPassword,code:codes[0].toUpperCase()},session:""});
+  assert.ok(rescue.cookies[0].startsWith("cdi_session="));
+  const next=await totp(secret,Math.floor(Date.now()/30000)+1);
+  assert.ok((await host.call("/auth/login",{method:"POST",body:{username:user,password:userPassword,code:next},session:""})).cookies[0]);
+  await host.call("/auth/login",{method:"POST",body:{username:user,password:userPassword,code:next},session:"",expected:401});
+  state=await host.get("/gestion/securite",session);
+  assert.equal(state.mfa.recovery_left,9); assert.equal(state.sessions.length,3);
+  await host.call("/gestion/securite/sessions",{method:"DELETE",session});
+  assert.equal((await host.get("/gestion/securite",session)).sessions.length,1);
+  const all=(await host.get("/gestion/sessions")).rows;
+  assert.ok(all.some(row=>row.username===user && row.mfa && /^[a-f0-9]{16}$/.test(row.id)));
+  assert.ok(all.some(row=>row.username==="admin" && row.current));
+  await host.get("/gestion/sessions",session,403);
+  await host.call("/gestion/comptes/"+accountId+"/double-authentification",{method:"DELETE"});
+  await host.get("/gestion/securite",session,401);
+  const journal=(await host.get("/gestion/journal?area=securite")).rows.map(row=>row.action);
+  for(const action of ["Échec de connexion","Activation de la double authentification","Échec de la double authentification",
+    "Connexion avec un code de secours","Fermeture des autres sessions","Réinitialisation de la double authentification"]) assert.ok(journal.includes(action),host.kind+" "+action);
+  const fresh=await host.login(user,userPassword);
+  assert.equal((await host.get("/gestion/securite",fresh)).mfa.enabled,false);
+}
+
 // Sécurité : en-têtes communs, méthodes refusées et conversion des anciennes empreintes de mot de passe.
 async function security(host) {
   for(const path of ["/","/api/auth/status","/cdi/cdi.css"]) {
     const response=await fetch(path==="/cdi/cdi.css"?host.base+host.prefix+path:host.route(path));
+    await response.arrayBuffer();
     assert.equal(response.status,200,host.kind+" "+path);
     for(const [name,value] of [["x-content-type-options","nosniff"],["x-frame-options","SAMEORIGIN"],["cross-origin-opener-policy","same-origin"],["x-robots-tag","noindex, nofollow"]]) {
       if(host.kind.startsWith("php") && path==="/cdi/cdi.css") continue; // Servi directement par le serveur web (règles .htaccess).
@@ -307,7 +354,21 @@ async function security(host) {
     assert.ok(response.headers.get("permissions-policy")?.includes("camera=()") || path==="/cdi/cdi.css" && host.kind.startsWith("php"));
     assert.ok(!response.headers.get("x-powered-by"),host.kind+" X-Powered-By");
   }
-  assert.equal((await fetch(host.route("/api/auth/status"),{method:"PUT"})).status,405);
+  const refused=await fetch(host.route("/api/auth/status"),{method:"PUT"});
+  await refused.arrayBuffer();
+  assert.equal(refused.status,405);
+  const worker=await fetch(host.route("/sw.js"));
+  await worker.text();
+  assert.equal(worker.status,200); assert.match(worker.headers.get("content-type"),/javascript/);
+  assert.equal(worker.headers.get("content-security-policy"),"default-src 'self'");
+  const manifest=await (await fetch(host.base+host.prefix+"/cdi/manifest.webmanifest")).json();
+  assert.equal(new URL(manifest.start_url,host.base+host.prefix+"/cdi/manifest.webmanifest").href,host.route("/borne"));
+  for(const asset of ["theme-dark.css","account.js","qr.js","offline.js","icon-192.png","icon-512.png"]) {
+    const response=await fetch(host.base+host.prefix+"/cdi/"+asset);
+    await response.arrayBuffer();
+    assert.equal(response.status,200,host.kind+" "+asset);
+  }
+  assert.match(await (await fetch(host.route("/"))).text(),/rel="manifest"[\s\S]*theme-dark\.css/);
   const legacySalt="ab".repeat(16);
   const {pbkdf2Sync}=await import("node:crypto");
   const legacy=legacySalt+":"+pbkdf2Sync("Ancien mot de passe 2025",legacySalt,100000,32,"sha256").toString("hex");
@@ -329,6 +390,7 @@ try {
   const node=await serve("node"), phpHost=await serve("php");
   const n=await exercise(node), p=await exercise(phpHost);
   await security(node); await security(phpHost);
+  await accountSecurity(node); await accountSecurity(phpHost);
   assert.ok((await node.post("/gestion/sauvegarde",{backup:p.old,phrase:secret},n.restore)).token);
   assert.ok((await phpHost.post("/gestion/sauvegarde",{backup:n.old,phrase:secret},p.restore)).token);
   const recoveryHost=await serve("php-reprise");
@@ -338,7 +400,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos et en-têtes de sécurité.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification et sessions.");
 } catch(error){
   console.error(output);
   throw error;

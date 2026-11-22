@@ -46,8 +46,16 @@ const assets = new Map([
   ["school.js", "text/javascript; charset=utf-8"],
   ["planning-pdf.js", "text/javascript; charset=utf-8"],
   ["privacy.js", "text/javascript; charset=utf-8"],
+  ["account.js", "text/javascript; charset=utf-8"],
+  ["qr.js", "text/javascript; charset=utf-8"],
+  ["offline.js", "text/javascript; charset=utf-8"],
+  ["theme-dark.css", "text/css; charset=utf-8"],
+  ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
   ["ticecdi-logo.webp", "image/webp"],
   ["ticecdi-icon.webp", "image/webp"],
+  ["icon-192.png", "image/png"],
+  ["icon-512.png", "image/png"],
+  ["icon-maskable-512.png", "image/png"],
 ]);
 async function requestHandler(request, client) {
   const url = new URL(request.url);
@@ -58,6 +66,12 @@ async function requestHandler(request, client) {
   if (assets.has(asset) && ["GET", "HEAD"].includes(request.method)) {
     const body = await readFile(new URL("../public/cdi/" + asset, import.meta.url));
     return new Response(body, { headers: { "Content-Type": assets.get(asset), "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" } });
+  }
+  if (url.pathname === "/sw.js" && ["GET", "HEAD"].includes(request.method)) {
+    // Le service worker est servi à la racine pour couvrir /borne ; sa CSP l'autorise à joindre le serveur.
+    const body = await readFile(new URL("../public/cdi/sw.js", import.meta.url));
+    return new Response(body, { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache",
+      "Content-Security-Policy": "default-src 'self'", "Service-Worker-Allowed": "/" } });
   }
   if (url.pathname === "/healthz" && request.method === "GET") return new Response("ok");
   return new Response("Page introuvable.", { status: 404 });
