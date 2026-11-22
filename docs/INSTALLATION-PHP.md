@@ -20,7 +20,8 @@ Sur un hébergement Linux, si la racine web est `/home/moncompte/public_html`, l
 <?php
 return [
     'CDI_DATA_DIR' => '/home/moncompte/gestion-cdi-data',
-    'CDI_ORIGIN' => '',
+    'CDI_ORIGIN' => 'https://cdi.exemple.fr',
+    'CDI_TRUST_PROXY' => '0',
 ];
 ```
 
@@ -40,7 +41,39 @@ Si la configuration est laissée par défaut et que PHP dispose des droits, l’
 | Administration | `index.php?route=/gestion` |
 | Vérification | `index.php?route=/healthz` |
 
-Sur un serveur Nginx, réserve l’accès Web aux ressources du dossier `cdi/` et à `index.php`. Interdis les requêtes vers `app/`, `drizzle/` et `config.*.php`. Le ZIP fournit les règles correspondantes pour Apache lorsqu’il prend en charge les fichiers `.htaccess`. Sers TiceCDI en HTTPS sur une infrastructure autorisée. Les données SQLite restent hors de la racine web.
+## Sécuriser le serveur web
+
+Sers TiceCDI **en HTTPS** sur une infrastructure autorisée. Les données SQLite restent hors de la racine web. `index.php` envoie lui-même les en-têtes de sécurité (CSP, `X-Frame-Options`, `Permissions-Policy`, HSTS en HTTPS…).
+
+**Apache et XAMPP.** Le ZIP contient un `.htaccess` qui interdit `app/`, `drizzle/`, `config.*.php`, les fichiers cachés et sensibles, désactive la liste des dossiers, limite les méthodes HTTP et ajoute les en-têtes de sécurité aux fichiers du dossier `cdi/`. Il nécessite `AllowOverride All` (valeur par défaut de XAMPP). Une fois le site uniquement en HTTPS, décommente la ligne `Strict-Transport-Security` du `.htaccess`.
+
+**Nginx.** Les fichiers `.htaccess` sont ignorés : reproduis les règles dans le bloc `server`. Exemple pour une installation dans `/cdi` :
+
+```nginx
+location ^~ /cdi/app/      { deny all; }
+location ^~ /cdi/drizzle/  { deny all; }
+location ~ ^/cdi/config\..*\.php$ { deny all; }
+location ~ /\.            { deny all; }
+location ~* \.(sql|sqlite3?|db|key|md|log|bak|ini|json|zip|sh)$ { deny all; }
+
+location ^~ /cdi/cdi/ {
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+}
+location = /cdi/index.php {
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+}
+autoindex off;
+server_tokens off;
+client_max_body_size 24m;
+```
+
+**Derrière un reverse proxy.** Renseigne `CDI_ORIGIN` avec l’adresse HTTPS publique. Mets `CDI_TRUST_PROXY` à `'1'` seulement si le serveur PHP n’est joignable que par ce proxy : la limitation des tentatives de connexion utilise alors l’adresse réelle transmise dans `X-Forwarded-For`.
+
+**PHP.** Utilise une version maintenue, laisse `display_errors=Off` en production et, si possible, `expose_php=Off` dans `php.ini`. Après la création du compte administrateur, supprime `installation.key` du dossier privé.
 
 ## Programmer la purge
 
@@ -54,7 +87,7 @@ Sous Windows, crée une tâche dans le Planificateur. Utilise `php.exe` comme pr
 
 ## Mise à jour et transfert
 
-- **Mise à jour.** Sauvegarde les données, puis remplace les fichiers de l’application avec ceux du nouveau ZIP. Conserve `config.local.php` et le dossier privé. Les migrations s’appliquent au démarrage.
+- **Mise à jour.** Sauvegarde les données, puis remplace les fichiers de l’application avec ceux du nouveau ZIP, y compris `.htaccess`. Conserve `config.local.php` et le dossier privé. Les migrations s’appliquent au démarrage et les mots de passe passent au nouveau hachage à la connexion suivante de chaque agent.
 - **Docker vers PHP ou PHP vers Docker.** Depuis l’instance d’origine, télécharge la sauvegarde chiffrée et l’état de reprise. À destination, initialise ton compte administrateur, ouvre **Sauvegarde et restauration**, importe l’état de reprise à jour, puis analyse et confirme la sauvegarde. Les comptes du personnel sont gérés séparément.
 - **Copie complète de l’édition PHP.** Interromps l’accès au service le temps de copier tout le dossier privé, qui contient la base SQLite et les comptes. Pour restaurer une copie de l’infrastructure, réapplique l’état de reprise à jour avant de rouvrir. Stocke cette copie dans un emplacement interne autorisé.
 
@@ -68,5 +101,7 @@ Pour restaurer un fichier JSON volumineux, autorise des requêtes d’au moins 2
 | « Le service est indisponible » | Ouvre `index.php?route=/healthz` et vérifie le journal PHP, les extensions requises et `open_basedir`. |
 | La page reste sur « Chargement du CDI… » | Vérifie que le dossier `cdi/` du ZIP a été copié à côté d’`index.php` et que le serveur peut servir les fichiers JavaScript et CSS. |
 | Le formulaire renvoie une erreur d’origine | Vérifie l’adresse indiquée dans `CDI_ORIGIN` et l’origine réellement ouverte dans le navigateur. |
+| Erreur 500 juste après la mise à jour (Apache) | L’hébergeur interdit `Options` dans `.htaccess`. Supprime la ligne `Options -Indexes` et désactive la liste des dossiers dans la configuration du serveur. |
+| Connexion plus lente qu’avant | Normal : le hachage renforcé prend une fraction de seconde à chaque connexion. |
 
 Pour fabriquer le ZIP à partir des sources GitHub sur Linux ou macOS, exécute `bash scripts/build-php.sh` depuis la racine du dépôt. L’archive apparaît dans `dist/TiceCDI-PHP.zip`.

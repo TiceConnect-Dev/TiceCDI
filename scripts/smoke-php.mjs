@@ -295,6 +295,31 @@ async function verifyLayout(hosts) {
   } finally {await browser.close();}
 }
 
+// Sécurité : en-têtes communs, méthodes refusées et conversion des anciennes empreintes de mot de passe.
+async function security(host) {
+  for(const path of ["/","/api/auth/status","/cdi/cdi.css"]) {
+    const response=await fetch(path==="/cdi/cdi.css"?host.base+host.prefix+path:host.route(path));
+    assert.equal(response.status,200,host.kind+" "+path);
+    for(const [name,value] of [["x-content-type-options","nosniff"],["x-frame-options","SAMEORIGIN"],["cross-origin-opener-policy","same-origin"],["x-robots-tag","noindex, nofollow"]]) {
+      if(host.kind.startsWith("php") && path==="/cdi/cdi.css") continue; // Servi directement par le serveur web (règles .htaccess).
+      assert.equal(response.headers.get(name),value,host.kind+" "+path+" "+name);
+    }
+    assert.ok(response.headers.get("permissions-policy")?.includes("camera=()") || path==="/cdi/cdi.css" && host.kind.startsWith("php"));
+    assert.ok(!response.headers.get("x-powered-by"),host.kind+" X-Powered-By");
+  }
+  assert.equal((await fetch(host.route("/api/auth/status"),{method:"PUT"})).status,405);
+  const legacySalt="ab".repeat(16);
+  const {pbkdf2Sync}=await import("node:crypto");
+  const legacy=legacySalt+":"+pbkdf2Sync("Ancien mot de passe 2025",legacySalt,100000,32,"sha256").toString("hex");
+  const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
+  db.prepare("INSERT INTO accounts VALUES (?,?,?,?,?,0)").run("legacy-"+host.kind,"ancien."+host.kind,"Ancien compte",legacy,JSON.stringify(["planning"]));
+  await host.login("ancien."+host.kind,"Ancien mot de passe 2025");
+  assert.match(db.prepare("SELECT secret FROM accounts WHERE username=?").get("ancien."+host.kind).secret,/^pbkdf2\$600000\$[a-f0-9]{32}\$[a-f0-9]{64}$/);
+  await host.login("ancien."+host.kind,"Ancien mot de passe 2025");
+  await host.call("/auth/login",{method:"POST",body:{username:"ancien."+host.kind,password:"mauvais mot de passe"},session:"",expected:401});
+  db.close();
+}
+
 try {
   exactExpiry();
   await migration();
@@ -303,6 +328,7 @@ try {
   ]);
   const node=await serve("node"), phpHost=await serve("php");
   const n=await exercise(node), p=await exercise(phpHost);
+  await security(node); await security(phpHost);
   assert.ok((await node.post("/gestion/sauvegarde",{backup:p.old,phrase:secret},n.restore)).token);
   assert.ok((await phpHost.post("/gestion/sauvegarde",{backup:n.old,phrase:secret},p.restore)).token);
   const recoveryHost=await serve("php-reprise");
@@ -312,7 +338,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence et logos.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos et en-têtes de sécurité.");
 } catch(error){
   console.error(output);
   throw error;

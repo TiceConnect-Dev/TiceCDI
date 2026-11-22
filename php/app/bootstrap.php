@@ -41,7 +41,7 @@ function setup(): void
         if (!is_array($config)) {
             throw new RuntimeException('Configuration locale invalide');
         }
-        foreach (['CDI_DATA_DIR', 'CDI_SETUP_KEY', 'CDI_ORIGIN'] as $key) {
+        foreach (['CDI_DATA_DIR', 'CDI_SETUP_KEY', 'CDI_ORIGIN', 'CDI_TRUST_PROXY'] as $key) {
             if (is_string($config[$key] ?? null) && setting($key) === '') {
                 putenv($key . '=' . $config[$key]);
             }

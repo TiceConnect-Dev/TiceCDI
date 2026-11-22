@@ -1,5 +1,37 @@
+# TiceCDI · règles Apache (2.4+). Les mêmes règles sont à reproduire sur Nginx (voir INSTALLATION.md).
+
+# Pas de liste des fichiers d'un dossier.
+Options -Indexes
+
 <IfModule mod_authz_core.c>
+  # Configuration locale, fichiers cachés, sources et données ne sont jamais servis.
   <FilesMatch "^config\..*\.php$">
     Require all denied
   </FilesMatch>
+  <FilesMatch "^\.">
+    Require all denied
+  </FilesMatch>
+  <FilesMatch "\.(?i:sql|sqlite|sqlite3|db|key|md|log|bak|ini|json|zip|sh)$">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "same-origin"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  Header always set Cross-Origin-Resource-Policy "same-origin"
+  Header always set X-Robots-Tag "noindex, nofollow"
+  Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)"
+  Header always unset X-Powered-By
+  # Décommentez une fois le site servi uniquement en HTTPS :
+  # Header always set Strict-Transport-Security "max-age=31536000"
+</IfModule>
+
+# Méthodes HTTP inutiles refusées (TRACE, PUT, OPTIONS…).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_METHOD} !^(GET|HEAD|POST|PATCH|DELETE)$
+  RewriteRule .* - [F,L]
 </IfModule>

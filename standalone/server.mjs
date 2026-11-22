@@ -63,27 +63,64 @@ async function requestHandler(request, client) {
   return new Response("Page introuvable.", { status: 404 });
 }
 
+const trustProxy = process.env.CDI_TRUST_PROXY === "1";
+const allowedMethods = new Set(["GET", "HEAD", "POST", "PATCH", "DELETE"]);
+const permissions = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=(self)";
+// En-têtes de sécurité ajoutés à toutes les réponses (pages, API, ressources et erreurs).
+function securityHeaders(headers, secure) {
+  const result = Object.fromEntries(headers);
+  const defaults = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": permissions,
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Robots-Tag": "noindex, nofollow",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+  };
+  if (secure) defaults["Strict-Transport-Security"] = "max-age=31536000";
+  for (const [name, value] of Object.entries(defaults)) if (!(name.toLowerCase() in result)) result[name] = value;
+  return result;
+}
+function clientAddress(incoming) {
+  if (trustProxy) {
+    const chain = String(incoming.headers["x-forwarded-for"] || "").split(",").map((part) => part.trim()).filter(Boolean);
+    if (chain.length) return chain[chain.length - 1];
+  }
+  return incoming.socket.remoteAddress;
+}
+
 const server = createServer(async (incoming, outgoing) => {
+  const forwardedHttps = trustProxy && incoming.headers["x-forwarded-proto"]?.split(",")[0].trim() === "https";
+  const secure = process.env.CDI_ORIGIN ? process.env.CDI_ORIGIN.startsWith("https://") : forwardedHttps;
+  const reply = (status, text = "") => outgoing.writeHead(status, securityHeaders(new Headers({ "Content-Type": "text/plain; charset=utf-8" }), secure)).end(text);
   try {
-    const secure = process.env.CDI_TRUST_PROXY === "1" && incoming.headers["x-forwarded-proto"]?.split(",")[0].trim() === "https";
-    const base = process.env.CDI_ORIGIN || `${secure ? "https" : "http"}://${incoming.headers.host || "localhost:" + port}`;
-    const fullUrl = new URL(incoming.url || "/", base);
-    if (fullUrl.origin !== new URL(base).origin) { outgoing.writeHead(400).end(); return; }
     const method = incoming.method || "GET";
+    if (!allowedMethods.has(method)) { reply(405, "Méthode indisponible."); return; }
+    if ((incoming.url || "").length > 4096) { reply(414, "Adresse trop longue."); return; }
+    const base = process.env.CDI_ORIGIN || `${forwardedHttps ? "https" : "http"}://${incoming.headers.host || "localhost:" + port}`;
+    const fullUrl = new URL(incoming.url || "/", base);
+    if (fullUrl.origin !== new URL(base).origin) { reply(400, "Requête invalide."); return; }
     const request = new Request(fullUrl, {
       method, headers:incoming.headers,
       ...(["GET", "HEAD"].includes(method) ? {} : { body: Readable.toWeb(incoming), duplex:"half" }),
     });
-    const response = await requestHandler(request, incoming.socket.remoteAddress);
-    outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+    const response = await requestHandler(request, clientAddress(incoming));
+    outgoing.writeHead(response.status, securityHeaders(response.headers, secure));
     if (method === "HEAD" || !response.body) outgoing.end();
     else await pipeline(Readable.fromWeb(response.body), outgoing);
   } catch (error) {
     console.error("TiceCDI HTTP", error.name);
-    if (!outgoing.headersSent) outgoing.writeHead(500).end("Service indisponible.");
+    if (!outgoing.headersSent) reply(500, "Service indisponible.");
     else outgoing.destroy();
   }
 });
+// Limite les connexions lentes ou abandonnées (slowloris).
+server.headersTimeout = 20_000;
+server.requestTimeout = 120_000;
+server.keepAliveTimeout = 5_000;
+server.maxHeadersCount = 100;
 server.listen(port, "0.0.0.0", () => console.log(`TiceCDI à l’écoute sur le port ${port}.`));
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.close(() => {
   clearInterval(maintenanceTimer);

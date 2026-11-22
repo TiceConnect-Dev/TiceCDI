@@ -383,3 +383,54 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
   .masthead-inner{gap:10px}
   .top-links{flex-wrap:wrap;gap:8px}
 }
+
+/* ── Correctifs d'affichage (v1.3) ─────────────────────────────────────── */
+/* En-têtes de tableaux : titre, compteur et filtres ne sont plus collés au bord du panneau. */
+.table-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.table-top h2{font-size:1.2rem;margin-right:auto}
+.table-top .filter-form{justify-content:flex-end}
+.table-top>.field{flex:1 1 260px;max-width:360px}
+.table-top+.scroll-table th,.table-top+div .scroll-table th{border-top:0}
+.table-panel>.empty:first-child,.table-panel>p:first-child{padding:28px 18px}
+.badge-panel .table-top+.hint{margin:12px 18px 0}
+.badge-grid{padding:14px 18px 18px}
+/* Barre latérale : défile seule si elle dépasse la hauteur de l'écran. */
+.sidebar{max-height:calc(100svh - 28px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+/* Barre d'outils du planning : les groupes de boutons passent à la ligne d'un bloc. */
+.planning-toolbar>*{flex:0 1 auto;max-width:100%}
+.planning-navigation{flex-wrap:nowrap}
+.planning-period{border-top:1px solid var(--line);padding-top:12px}
+/* Formulaires et réglages alignés sur une même largeur. */
+.settings-panel,.opening-form{max-width:850px}
+#find-dossier .btn{justify-self:start}
+.stat-filters .button-row{align-self:end}
+.head-actions{justify-content:flex-end}
+.page-head>div:first-child{min-width:0}
+.sr-label{position:static}
+@media(max-width:930px){
+  .planning-navigation{flex-wrap:wrap}
+}
+@media(max-width:680px){
+  /* Le contenu ne déborde plus de l'écran (tableaux et planning défilent dans leur cadre). */
+  .admin-shell{grid-template-columns:minmax(0,1fr)}
+  .admin-main{min-width:0}
+  /* Menu de gestion en bandeau horizontal défilant au lieu d'une longue liste. */
+  .sidebar{position:static;display:block;max-height:none;padding:6px;overflow:visible}
+  .sidebar nav{display:flex;gap:4px;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:3px;scrollbar-width:thin}
+  .side-link{flex:none;white-space:nowrap;scroll-snap-align:start;border-left:0;border-bottom:3px solid transparent;border-radius:4px 4px 0 0}
+  .side-link[aria-current="page"]{border-bottom-color:var(--blue)}
+  .table-top{padding:13px 13px 11px}
+  .table-top .filter-form{justify-content:flex-start;width:100%}
+  .filter-form .input,.filter-form label{flex:1 1 150px;width:auto}
+  .head-actions{justify-content:flex-start}
+  .planning-toolbar>*{flex:1 1 100%}
+  .planning-toolbar .head-actions .btn,.planning-navigation .btn{min-height:38px;padding-inline:10px}
+}
+@media(max-width:560px){
+  /* En-tête compact : icônes seules, libellés conservés pour les lecteurs d'écran. */
+  .masthead-inner{flex-wrap:nowrap}
+  .top-links{flex-wrap:nowrap;gap:6px}
+  .top-links a,.top-links button{padding:8px}
+  .top-links .sr-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+  .top-links .icon{width:18px;height:18px}
+}

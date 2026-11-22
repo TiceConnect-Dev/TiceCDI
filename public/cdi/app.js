@@ -15,10 +15,10 @@ const box = (symbol) => `<span class="icon-box">${icon(symbol)}</span>`;
 const pill = (text, tone = "") => `<span class="pill ${tone ? "pill-" + tone : ""}">${e(text)}</span>`;
 
 function header(area = "home", canActivate = false) {
-  const links=`<a href="${urlFor("/notice")}">Données personnelles</a>`+
-    (area==="admin" ? `${canActivate?`<a href="${urlFor("/gestion/borne-poste")}">Activer la borne</a>`:""}
-      <button id="logout" type="button">${icon("logout")}<span>Déconnexion</span></button>`
-      : `<a href="${urlFor("/gestion")}">${icon("lock")}<span>Espace personnel</span></a>`);
+  const links=`<a href="${urlFor("/notice")}" title="Données personnelles">${icon("info")}<span class="sr-label">Données personnelles</span></a>`+
+    (area==="admin" ? `${canActivate?`<a href="${urlFor("/gestion/borne-poste")}" title="Activer la borne">${icon("scan")}<span class="sr-label">Activer la borne</span></a>`:""}
+      <button id="logout" type="button" title="Déconnexion">${icon("logout")}<span class="sr-label">Déconnexion</span></button>`
+      : `<a href="${urlFor("/gestion")}" title="Espace personnel">${icon("lock")}<span class="sr-label">Espace personnel</span></a>`);
   return `<header class="masthead"><div class="wrap masthead-inner">
     <a class="brand" href="${urlFor("/")}">${brand(area==="kiosk")}</a>
     <nav class="top-links" aria-label="Accès rapides">${links}</nav>
@@ -209,6 +209,7 @@ function adminShell(user, selected) {
     <main class="admin-main" id="main"><p class="loading">Chargement…</p></main>
     <dialog class="dialog" id="dialog" aria-labelledby="dialog-title"></dialog><div role="status" class="toast" id="toast" hidden></div>
     </div></div>`;
+  $(".side-link[aria-current]")?.scrollIntoView({ block:"nearest", inline:"center" });
   $("#logout").addEventListener("click", async () => {
     try { await api("/auth/logout", "POST"); location.assign(urlFor("/connexion")); }
     catch (error) { toast(error.message, "error"); }
@@ -356,9 +357,9 @@ async function fetchStudents() {
   const result = await gestion("eleves/recherche","POST",activeFilters);
   if (version !== rosterVersion) return;
   records = result.rows;
-  const withBadges = can("badges");
-  $("#roster").innerHTML = records.length ? table(["Élève","Classe",...(withBadges ? ["Code CDI"] : []),"Actions"], records.map((row) =>
-    `<tr><td>${identity(row)}</td><td>${pill(row.class_name,"gray")}</td>${withBadges ? `<td><code>${e(row.code)}</code></td>` : ""}
+  // Les codes CDI ne sont pas renvoyés par l’annuaire : ils restent réservés à la planche des codes-barres.
+  $("#roster").innerHTML = records.length ? table(["Élève","Classe","Actions"], records.map((row) =>
+    `<tr><td>${identity(row)}</td><td>${pill(row.class_name,"gray")}</td>
     <td><div class="button-row">${rowAction("Modifier","edit","student-edit",row.id)}${activeFilters.archived ? rowAction("Réactiver","check","student-restore",row.id) : rowAction("Retirer","trash","student-delete",row.id,"danger tiny")}</div></td></tr>`))
     : empty("Aucun élève trouvé","Ajoutez un élève ou modifiez les filtres.", "user");
 }

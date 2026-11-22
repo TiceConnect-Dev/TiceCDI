@@ -38,10 +38,33 @@ function equal(a, b) {
   return difference === 0;
 }
 async function digest(value) { return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)))); }
-async function passwordHash(password, salt = random(16)) {
+// Hachage des mots de passe : PBKDF2-SHA256 à 600 000 itérations (recommandation OWASP).
+// Format « pbkdf2$itérations$sel$empreinte ». L’ancien format « sel:empreinte » (100 000 itérations)
+// reste reconnu puis est converti automatiquement à la connexion suivante.
+const PASSWORD_ITERATIONS = 600000;
+async function pbkdf2(password, salt, iterations) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: 100000 }, key, 256);
-  return salt + ":" + hex(new Uint8Array(bits));
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations }, key, 256);
+  return hex(new Uint8Array(bits));
+}
+async function passwordHash(password) {
+  const salt = random(16);
+  return `pbkdf2$${PASSWORD_ITERATIONS}$${salt}$${await pbkdf2(password, salt, PASSWORD_ITERATIONS)}`;
+}
+function parseSecret(stored) {
+  if (typeof stored !== "string") return null;
+  const legacy = stored.match(/^([a-f0-9]{32}):([a-f0-9]{64})$/);
+  if (legacy) return { iterations: 100000, salt: legacy[1], hash: legacy[2] };
+  const current = stored.match(/^pbkdf2\$(\d{6,7})\$([a-f0-9]{32})\$([a-f0-9]{64})$/);
+  const iterations = Number(current?.[1]);
+  if (!current || iterations < 100000 || iterations > 5000000) return null;
+  return { iterations, salt: current[2], hash: current[3] };
+}
+async function verifyPassword(password, stored) {
+  const parsed = parseSecret(stored);
+  const params = parsed ?? { iterations: PASSWORD_ITERATIONS, salt: "0".repeat(32), hash: "" };
+  const ok = equal(await pbkdf2(password, params.salt, params.iterations), params.hash) && Boolean(parsed);
+  return { ok, upgrade: ok && params.iterations < PASSWORD_ITERATIONS };
 }
 function newPassword(value) {
   if (typeof value !== "string" || value.length < 12 || value.length > 160) fail(400, "Le mot de passe doit contenir entre 12 et 160 caractères.");
@@ -272,8 +295,9 @@ async function dispatch(request, env, options) {
     await throttle(m, "account:" + await digest(login), 12, 10);
     const account = await m.one("SELECT * FROM accounts WHERE username=?", login);
     const candidate = typeof data.password === "string" ? data.password.slice(0, 161) : "";
-    const verified = await passwordHash(candidate, account?.secret.split(":")[0] ?? "00000000000000000000000000000000");
-    if (!account || !equal(account.secret, verified)) fail(401, "Identifiant ou mot de passe incorrect.");
+    const verified = await verifyPassword(candidate, account?.secret);
+    if (!account || !verified.ok) fail(401, "Identifiant ou mot de passe incorrect.");
+    if (verified.upgrade) await m.run("UPDATE accounts SET secret=? WHERE id=? AND secret=?", await passwordHash(candidate), account.id, account.secret);
     return openSession(m, request, account.id);
   }
   if (method === "POST" && path === "/api/auth/logout") {

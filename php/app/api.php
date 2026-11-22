@@ -51,15 +51,18 @@ function authResource(Store $db, string $path, string $method, int $clock, strin
         $login = substr(strtolower(clean($data['username'] ?? null)), 0, 80);
         throttle($db, 'account:' . hash('sha256', $login), 12, 10);
         $account = $db->one('SELECT id,secret FROM accounts WHERE username=?', $login);
-        $salt = $account ? explode(':', $account['secret'], 2)[0] : str_repeat('0', 32);
         $password = is_string($data['password'] ?? null) ? mb_substr($data['password'], 0, 161, 'UTF-8') : '';
-        $secret = passwordSecret($password, $salt);
-        if (!$account || !hash_equals($account['secret'], $secret)) {
+        $verified = verifyPassword($password, $account['secret'] ?? null);
+        if (!$account || !$verified['ok']) {
             fail(401, 'Identifiant ou mot de passe incorrect.');
         }
-        return $db->atomic(function () use ($db, $account, $clock): array {
+        $upgraded = $verified['upgrade'] ? passwordSecret($password) : null;
+        return $db->atomic(function () use ($db, $account, $clock, $upgraded): array {
             if (!$db->one('SELECT id FROM accounts WHERE id=? AND secret=?', $account['id'], $account['secret'])) {
                 fail(401, 'Identifiant ou mot de passe incorrect.');
+            }
+            if ($upgraded !== null) {
+                $db->run('UPDATE accounts SET secret=? WHERE id=?', $upgraded, $account['id']);
             }
             return startLogin($db, $account['id'], $clock);
         });
@@ -357,7 +360,7 @@ function api(Store $db, string $path, string $method, string $dataDir): array
     if ($method !== 'GET') {
         sameOrigin();
     }
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'borne';
+    $ip = clientAddress();
     if (str_starts_with($path, '/api/auth/')) {
         return authResource($db, $path, $method, $clock, $dataDir, $ip);
     }
