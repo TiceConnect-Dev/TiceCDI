@@ -78,12 +78,12 @@ function replaceBackupTables(Store $db, array $tables): void
 function backupResource(Store $db, array $me, string $path, string $method, int $clock): array
 {
     if ($path === '/api/gestion/sauvegarde' && $method === 'GET') {
-        need($me,'export','restaurer');
-        return ['rows' => in_array('export',$me['rights'],true)
+        need($me,'sauvegarde','restaurer');
+        return ['rows' => in_array('sauvegarde',$me['rights'],true)
             ? $db->all('SELECT id,created_at FROM encrypted_backups ORDER BY created_at DESC,id DESC') : []];
     }
     if ($path === '/api/gestion/sauvegarde/export' && $method === 'POST') {
-        need($me,'export');
+        need($me,'sauvegarde');
         $data = requestData();
         $envelope = encryptBackup(jsonData(exportBackup($db,$clock)),$data['phrase'] ?? null);
         $db->run('INSERT INTO encrypted_backups VALUES (?,?,?)',uid(),$clock,jsonData($envelope));
@@ -92,7 +92,7 @@ function backupResource(Store $db, array $me, string $path, string $method, int 
         return $envelope;
     }
     if ($path === '/api/gestion/sauvegarde/etat/export' && $method === 'POST') {
-        need($me,'export');
+        need($me,'sauvegarde');
         $data = requestData();
         $envelope = encryptBackup(jsonData(['format'=>'cdi-recovery','privacy'=>recoveryState($db)]),$data['phrase'] ?? null);
         audit($db,$me,'sauvegarde','Export de l’état de reprise','Historique des purges et effacements',null,null);
@@ -110,7 +110,7 @@ function backupResource(Store $db, array $me, string $path, string $method, int 
         return ['ok'=>true];
     }
     if ($method === 'GET' && preg_match('~^/api/gestion/sauvegarde/([a-f0-9-]+)$~D',$path,$match)) {
-        need($me,'export');
+        need($me,'sauvegarde');
         $row = $db->one('SELECT envelope FROM encrypted_backups WHERE id=?',$match[1]);
         if (!$row) {
             fail(404,'Sauvegarde indisponible.');

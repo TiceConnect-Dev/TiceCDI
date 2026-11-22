@@ -113,8 +113,8 @@ export async function renderPrivacy(target,{section,toast,confirmDialog}) {
   refresh();
 }
 
-export async function renderDossier(target,{section,toast,dialogForm,canExport}) {
-  target.innerHTML=section("Dossiers individuels","Recherchez un élève pour traiter une demande validée par l’établissement.")+
+export async function renderDossier(target,{section,toast,dialogForm,canExport,canRectify,canErase,readOnlyPill}) {
+  target.innerHTML=section("Dossiers individuels","Recherchez un élève pour traiter une demande validée par l’établissement.",canRectify||canErase?"":readOnlyPill())+
     `<form id="find-dossier" class="panel panel-body stack"><label class="field"><span>Nom, prénom ou identifiant interne</span>
       <input name="query" type="search" minlength="3" maxlength="90" required></label>
       <button class="btn primary" type="submit">Rechercher</button><div id="dossier-results" aria-live="polite"></div></form>
@@ -136,15 +136,15 @@ export async function renderDossier(target,{section,toast,dialogForm,canExport})
     const subsection=(title,lines)=>`<h3>${e(title)}</h3>${lines.length?"<ul>"+lines.map(line=>"<li>"+e(line)+"</li>").join("")+"</ul>":"<p>Aucune donnée conservée.</p>"}`;
     panel.innerHTML=`<div class="panel panel-body stack notice-body"><h2>${e(student.first_name+" "+student.last_name)}</h2>
       <p>${e(student.class_name)}${student.external_id?" · "+e(student.external_id):""}</p>
-      <div class="button-row">${button("Rectifier","edit",'id="rectify-student"')}
+      <div class="button-row">${canRectify?button("Rectifier","edit",'id="rectify-student"'):""}
       ${canExport?button("Exporter ce dossier","download",'id="export-student"'):""}
-      ${button("Effacer ce dossier","trash",'id="erase-student"',"danger")}</div>
+      ${canErase?button("Effacer ce dossier","trash",'id="erase-student"',"danger"):""}</div>
       ${subsection("Passages",visits.map(row=>moment(row.starts_at)+" · "+(row.ended_at?"Sortie enregistrée à "+moment(row.ended_at):
         row.expires_at<=Date.now()?"Créneau expiré à "+moment(row.expires_at):"Échéance prévue à "+moment(row.expires_at))))}
       ${subsection("Fiches d’appel",attendance.map(row=>moment(row.started_at)+" · "+({present:"Présent",retard:"Retard",absent:"Absent",excuse:"Excusé",attente:"En attente",exclu:"Exclu"}[row.status]??row.status)))}
       ${subsection("Exclusions",exclusions.map(row=>row.until_day+" · "+row.reason))}
       ${subsection("Archives scolaires",archives.map(row=>row.year_label+" · "+row.class_name))}</div>`;
-    $("#rectify-student",panel).addEventListener("click",async()=>{
+    $("#rectify-student",panel)?.addEventListener("click",async()=>{
       try {
         const {rows:classes}=await api("/gestion/classes");
         dialogForm("Rectifier le dossier",`<label class="field"><span>Prénom</span><input name="first_name" value="${e(student.first_name)}" required></label>
@@ -160,7 +160,7 @@ export async function renderDossier(target,{section,toast,dialogForm,canExport})
         saveFile("TiceCDI-dossier-eleve.json","application/json",JSON.stringify(data,null,2));
       }catch(error){toast(error.message,"error");}
     });
-    $("#erase-student",panel).addEventListener("click",()=>dialogForm("Effacer ce dossier",`
+    $("#erase-student",panel)?.addEventListener("click",()=>dialogForm("Effacer ce dossier",`
       <p>Seuls les totaux anonymes seront conservés. Les anciennes sauvegardes gardées sur ce serveur seront supprimées.</p>
       <label class="field"><span>Tapez EFFACER pour confirmer</span><input name="confirmation" required pattern="EFFACER"></label>`,
       "Effacer",form=>api("/gestion/dossier/"+id,"DELETE",{confirmation:form.elements.confirmation.value}),{danger:true,refresh:find}));

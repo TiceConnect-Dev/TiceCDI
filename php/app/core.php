@@ -5,7 +5,8 @@ declare(strict_types=1);
 const RIGHTS = [
     'presence', 'sorties', 'exclusions', 'exclusions_voir', 'eleves', 'eleves_voir', 'classes', 'classes_voir', 'import', 'badges',
     'comptes', 'arrivees', 'seances_voir', 'planning', 'planning_voir', 'statistiques', 'groupes', 'groupes_voir', 'borne',
-    'reglages', 'reglages_voir', 'journal', 'export', 'restaurer', 'donnees',
+    'reglages', 'reglages_voir', 'journal', 'export_planning', 'export_appel', 'export_statistiques', 'export_dossiers',
+    'sauvegarde', 'restaurer', 'dossiers_voir', 'donnees', 'effacer', 'comptes_voir',
 ];
 const HOUR_MS = 3_600_000;
 const MAX_BACKUP_BYTES = 14_000_000;

@@ -21,12 +21,13 @@ Pour un traitement mis en œuvre localement dans un collège ou lycée public, l
 | Vie scolaire | Consulter les présences, selon le droit attribué. |
 | Personnel du CDI | Consulter et gérer les présences et prolongations selon ses droits. |
 | Activer un poste | Ouvrir une borne de pointage sur un navigateur dédié (durée fixée par l’administrateur). |
-| Exporter | Télécharger les sauvegardes chiffrées. Les exports ciblés exigent aussi le droit de consulter leur rubrique. |
+| Exporter (par rubrique) | Planning en PDF, fiches d’appel en CSV, statistiques, dossier individuel. Exige aussi de consulter la rubrique. |
+| Sauvegardes | Créer et télécharger les sauvegardes chiffrées (droit distinct des exports). |
 | Restaurer | Analyser et appliquer une sauvegarde ou un état de reprise. |
-| Traiter les dossiers individuels | Rechercher, consulter et rectifier un dossier, ou l’effacer sur demande validée. |
+| Dossiers individuels | Consulter, rectifier ou effacer (droit séparé) un dossier sur demande validée. |
 | Administrateur | Configurer l’établissement et les droits, accéder au journal et exécuter les opérations d’administration. |
 
-Dans **Comptes et droits**, chaque rubrique se règle sur **Aucun**, **Consulter** ou **Gérer** : planning, fiches d’appel, exclusions, élèves, classes, groupes, réglages et horaires de la borne. « Consulter » ouvre la page en lecture seule (badge « Consultation seule », boutons de modification masqués et refusés par le serveur). Les actions sensibles (import, codes-barres, activation de borne, exports, restauration, dossiers individuels, gestion des comptes) se cochent à part, comme le journal et les statistiques. Des modèles remplissent le tableau en un clic : vie scolaire, enseignant, direction (consultation complète), personnel du CDI. Un agent qui gère les comptes sans être administrateur ne peut attribuer que les droits qu’il possède.
+Dans **Comptes et droits**, chaque rubrique se règle sur **Aucun**, **Consulter** ou **Gérer** : planning, fiches d’appel, exclusions, élèves, classes, groupes, réglages et horaires de la borne. « Consulter » ouvre la page en lecture seule (badge « Consultation seule », boutons de modification masqués et refusés par le serveur). Les actions sensibles (import, codes-barres, activation de borne, exports, restauration, dossiers individuels, gestion des comptes) se cochent à part, comme le journal et les statistiques. La colonne **Exporter** autorise les PDF et CSV d’une rubrique (planning, fiches d’appel, statistiques, dossiers individuels) ; elle ne donne jamais accès aux sauvegardes complètes, qui ont leurs propres cases (créer et télécharger, restaurer). Les dossiers individuels distinguent consulter, rectifier et effacer. Des modèles remplissent le tableau en un clic : vie scolaire, enseignant, direction (consultation complète), personnel du CDI, référent données. Un agent qui gère les comptes sans être administrateur ne peut attribuer que les droits qu’il possède.
 
 Sur le poste dédié, ouvrez **Borne → Postes de borne**, choisissez **Activer ce poste**, donnez-lui un nom (par exemple « Borne accueil ») et confirmez. La session du personnel se ferme et la borne s’ouvre. Une restauration révoque les activations en cours. Les agents chargés de la seule consultation disposent de leur propre accès dans **Présences**.
 

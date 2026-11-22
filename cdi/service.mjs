@@ -12,7 +12,7 @@ import { changeSlot, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeH
 import { classRoster, groupArrival } from "./operations.mjs";
 
 // Droits : « gérer » (clé simple) ou « consulter » (suffixe _voir) par rubrique, plus des actions ponctuelles.
-export const RIGHTS = ["presence", "sorties", "exclusions", "exclusions_voir", "eleves", "eleves_voir", "classes", "classes_voir", "import", "badges", "comptes", "arrivees", "seances_voir", "planning", "planning_voir", "statistiques", "groupes", "groupes_voir", "borne", "reglages", "reglages_voir", "journal", "export", "restaurer", "donnees"];
+export const RIGHTS = ["presence", "sorties", "exclusions", "exclusions_voir", "eleves", "eleves_voir", "classes", "classes_voir", "import", "badges", "comptes", "arrivees", "seances_voir", "planning", "planning_voir", "statistiques", "groupes", "groupes_voir", "borne", "reglages", "reglages_voir", "journal", "export_planning", "export_appel", "export_statistiques", "export_dossiers", "sauvegarde", "restaurer", "dossiers_voir", "donnees", "effacer", "comptes_voir"];
 const encoder = new TextEncoder();
 const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" });
 const personColumns = "s.id,s.first_name,s.last_name,c.name AS class_name,s.class_id";
@@ -514,7 +514,7 @@ async function dispatch(request, env, options) {
     return json(await maintain(m,clock));
   }
   if (path==="/api/gestion/dossier/recherche" && method==="POST") {
-    need("donnees");
+    need("dossiers_voir","donnees");
     const input=clean((await payload(request)).q).slice(0,90), query=words(input);
     if (query.length<3) return json({rows:[]});
     const tokens=query.split(" ").slice(0,8);
@@ -523,16 +523,17 @@ async function dispatch(request, env, options) {
   }
   const individual=path.match(/^\/api\/gestion\/dossier\/([a-f0-9-]+)(\/export)?$/);
   if (individual) {
-    need("donnees");
+    need("dossiers_voir","donnees");
     const [,student,file]=individual;
     if (file && method==="GET") {
-      need("export");
+      need("export_dossiers");
       const data=await studentFile(m,student,fail);
       await m.batch([audit(m,me,"confidentialite","Export d’un dossier","Dossier individuel",null,null)]);
       return json(data,200,{"Content-Disposition":'attachment; filename="Dossier-eleve.json"'});
     }
     if (!file && method==="GET") return json(await studentFile(m,student,fail));
     if (!file && method==="PATCH") {
+      need("donnees");
       const result=await saveStudent(m,await payload(request),student);
       await m.batch([
         m.stmt("UPDATE attendance_members SET first_name=(SELECT first_name FROM students WHERE id=?),last_name=(SELECT last_name FROM students WHERE id=?) WHERE student_id=?",student,student,student),
@@ -542,6 +543,7 @@ async function dispatch(request, env, options) {
       return json(result);
     }
     if (!file && method==="DELETE") {
+      need("effacer");
       if ((await payload(request)).confirmation!=="EFFACER") fail(400,"Confirmez l’effacement.");
       await studentFile(m,student,fail);
       await m.batch([taskStatement(m,await privacySettings(m),clock,"erase",student),
@@ -550,11 +552,13 @@ async function dispatch(request, env, options) {
     }
   }
   if (path==="/api/gestion/export" && method==="POST") {
-    need("export");
     const {type}=await payload(request);
-    const permissions={planning:["planning","planning_voir"],appel:["arrivees","seances_voir"],statistiques:["statistiques"],badges:["badges"],archives:["admin"]};
-    if (!Object.hasOwn(permissions,type)) fail(400,"Export inconnu.");
-    if (type==="archives" ? !me.admin : !permissions[type].some(right=>me.rights.includes(right))) fail(403,"Votre compte ne dispose pas de cet accès.");
+    // Chaque export a son propre droit, en plus du droit de consulter la rubrique ; il n’ouvre jamais les sauvegardes.
+    const permissions={planning:["export_planning",["planning","planning_voir"]],appel:["export_appel",["arrivees","seances_voir"]],
+      statistiques:["export_statistiques",["statistiques"]],badges:["badges",["badges"]]};
+    if (type==="archives") { if (!me.admin) fail(403,"Votre compte ne dispose pas de cet accès."); }
+    else if (!Object.hasOwn(permissions,type)) fail(400,"Export inconnu.");
+    else { need(permissions[type][0]); need(...permissions[type][1]); }
     await m.batch([audit(m,me,"confidentialite","Export",type,null,null)]);
     return json({ok:true});
   }
@@ -658,11 +662,11 @@ async function dispatch(request, env, options) {
     if (!finish && method==="PATCH") return json(await changeCall(m,me,id,await payload(request),clock,fail));
   }
   if (path==="/api/gestion/sauvegarde" && method==="GET") {
-    need("export","restaurer");
-    return json({rows:me.rights.includes("export") ? await m.list("SELECT id,created_at FROM encrypted_backups ORDER BY created_at DESC,id DESC") : []});
+    need("sauvegarde","restaurer");
+    return json({rows:me.rights.includes("sauvegarde") ? await m.list("SELECT id,created_at FROM encrypted_backups ORDER BY created_at DESC,id DESC") : []});
   }
   if (path==="/api/gestion/sauvegarde/export" && method==="POST") {
-    need("export");
+    need("sauvegarde");
     const {phrase}=await payload(request);
     const envelope=await encryptBackup(await exportBackup(m,clock,fail),phrase,fail);
     await m.batch([
@@ -674,7 +678,7 @@ async function dispatch(request, env, options) {
     return json(envelope);
   }
   if (path==="/api/gestion/sauvegarde/etat/export" && method==="POST") {
-    need("export");
+    need("sauvegarde");
     const {phrase}=await payload(request);
     const envelope=await encryptBackup(JSON.stringify({format:"cdi-recovery",privacy:await recoveryState(m)}),phrase,fail);
     await m.batch([audit(m,me,"sauvegarde","Export de l’état de reprise","Historique des purges et effacements",null,null)]);
@@ -691,7 +695,7 @@ async function dispatch(request, env, options) {
   }
   const backupId=path.match(/^\/api\/gestion\/sauvegarde\/([a-f0-9-]+)$/)?.[1];
   if (backupId && method==="GET") {
-    need("export");
+    need("sauvegarde");
     const saved=await m.one("SELECT envelope FROM encrypted_backups WHERE id=?",backupId);
     if (!saved) fail(404,"Sauvegarde indisponible.");
     await m.batch([audit(m,me,"sauvegarde","Téléchargement","Sauvegarde chiffrée",null,null)]);
@@ -725,7 +729,6 @@ async function dispatch(request, env, options) {
   }
   const yearItem=path.match(/^\/api\/gestion\/annees\/(\d{4}-\d{4})$/)?.[1];
   if (yearItem && method==="GET") {
-    need("export");
     if (!me.admin) fail(403,"L’archive est réservée aux administrateurs.");
     return json({rows:await archiveRows(m,yearItem,fail)});
   }
@@ -766,7 +769,7 @@ async function dispatch(request, env, options) {
   }
   if (resource === "classes") {
     if (method === "GET" && !itemId) {
-      need("classes", "classes_voir", "eleves", "eleves_voir", "badges", "import", "presence", "sorties", "arrivees", "seances_voir", "planning", "planning_voir", "groupes", "groupes_voir", "exclusions", "exclusions_voir", "donnees");
+      need("classes", "classes_voir", "eleves", "eleves_voir", "badges", "import", "presence", "sorties", "arrivees", "seances_voir", "planning", "planning_voir", "groupes", "groupes_voir", "exclusions", "exclusions_voir", "dossiers_voir", "donnees");
       return json({ rows: await m.list(`SELECT c.id,c.name,(SELECT count(*) FROM students s WHERE s.class_id=c.id AND s.active=1) AS total
         FROM classes c ORDER BY c.normalized`) });
     }
@@ -810,7 +813,6 @@ async function dispatch(request, env, options) {
     if ((method==="GET" && !itemId) || studentSearch) {
       const filter=studentSearch ? await payload(request) : Object.fromEntries(url.searchParams);
       const forBadges = filter.badges === "1";
-      if (forBadges) need("export");
       need(...(forBadges ? ["badges"] : ["eleves", "eleves_voir", "exclusions", "groupes"]));
       const classId = clean(filter.class);
       const active = !forBadges && me.rights.includes("eleves") && filter.archived === "1" ? 0 : 1;
@@ -857,9 +859,10 @@ async function dispatch(request, env, options) {
     }
   }
   if (resource === "comptes") {
-    need("comptes");
+    need("comptes", "comptes_voir");
     if (method === "GET" && !itemId) return json({ rows: (await m.list(`SELECT a.*,EXISTS(SELECT 1 FROM account_mfa f WHERE f.account_id=a.id AND f.secret IS NOT NULL) AS mfa
       FROM accounts a ORDER BY a.admin DESC,a.name`)).map((row) => ({ ...publicAccount(row), mfa: Boolean(row.mfa) })) });
+    need("comptes");
     const target = itemId ? await m.one("SELECT * FROM accounts WHERE id=?", itemId) : null;
     if (itemId && !target) fail(404, "Compte introuvable.");
     if (target && !me.admin && (target.admin || publicAccount(target).rights.some((right) => !me.rights.includes(right)))) fail(403, "Ce compte ne peut pas être modifié avec vos droits.");

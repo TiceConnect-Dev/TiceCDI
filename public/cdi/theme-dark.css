@@ -83,6 +83,9 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] .right-level span{background:var(--white,#14151a)}
   html[data-theme="dark"] .right-level input:checked+span{background:var(--blue-fill)}
   html[data-theme="dark"] .right-level input:focus-visible+span{outline:3px solid #788eed}
+  html[data-theme="dark"] .right-export span{background:var(--white,#14151a)}
+  html[data-theme="dark"] .right-export input:checked+span{background:#1b3121;border:1px solid #84e1a2;color:#84e1a2}
+  html[data-theme="dark"] .right-export input:focus-visible+span{outline:3px solid #788eed}
   html[data-theme="dark"] body{background:var(--canvas)}
   html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}

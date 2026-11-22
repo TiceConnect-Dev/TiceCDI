@@ -631,7 +631,7 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 /* Droits fins : tableau Aucun / Consulter / Gérer et mention de consultation seule. */
 .dialog.dialog-wide{width:min(760px,calc(100% - 26px))}
 .rights-matrix{border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.rights-head,.rights-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,92px);align-items:center;gap:6px;padding:9px 12px}
+.rights-head,.rights-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(4,92px);align-items:center;gap:6px;padding:9px 12px}
 .rights-head{background:var(--canvas);font-size:.76rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .rights-head span:not(:first-child){text-align:center}
 .rights-row+.rights-row{border-top:1px solid var(--line)}
@@ -643,13 +643,21 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .right-level input:checked+span{background:var(--blue);border-color:var(--blue);color:#fff}
 .right-level input:focus-visible+span{outline:3px solid #5571e8;outline-offset:2px}
 .right-level.locked{cursor:not-allowed;opacity:.45}
-.right-level.empty{color:var(--muted);font-size:.85rem}
+.right-none{display:flex;justify-content:center;color:var(--muted);font-size:.85rem}
 .check-line.locked{opacity:.45}
+.right-export{position:relative;display:flex;justify-content:center;cursor:pointer}
+.right-export input{position:absolute;opacity:0;width:1px;height:1px}
+.right-export span{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:84px;padding:6px 8px;border-radius:999px;border:1px dashed var(--line);font-size:.8rem;font-weight:700;color:var(--muted);background:var(--white,#fff)}
+.right-export span::before{content:"";width:10px;height:10px;border-radius:3px;border:1.5px solid currentColor}
+.right-export input:checked+span{background:#e6f4ea;border:1px solid #1e7a3c;color:#1e7a3c}
+.right-export input:checked+span::before{background:currentColor}
+.right-export input:focus-visible+span{outline:3px solid #5571e8;outline-offset:2px}
+.right-export.locked,.right-export.off{cursor:not-allowed;opacity:.4}
 .read-only-pill{display:inline-flex;align-items:center;gap:6px;background:var(--pale);color:var(--blue);padding:6px 10px}
 .read-only-pill .icon{width:16px;height:16px}
 @media(max-width:620px){
   .rights-head{display:none}
-  .rights-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .rights-row{grid-template-columns:repeat(4,minmax(0,1fr))}
   .rights-row>div{grid-column:1/-1}
-  .right-level span{min-width:0;width:100%}
+  .right-level span,.right-export span{min-width:0;width:100%}
 }

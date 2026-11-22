@@ -146,7 +146,7 @@ async function exercise(host) {
   const today=parisClock().day, monday=shiftDay(today,1-parisClock().weekday);
   await get("/planning?week="+monday,"",403);
   for(const [name,rights] of Object.entries({vie:["presence"],cdi:["presence","sorties","borne","arrivees"],
-    exporteur:["export"],restauration:["restaurer"],dpo:["donnees"],plan:["planning"]})) {
+    exporteur:["sauvegarde"],restauration:["restaurer"],dpo:["donnees","effacer"],plan:["planning"]})) {
     await post("/gestion/comptes",{username:name,name:name==="vie"?"Vie scolaire":name,rights,password});
   }
   const [viewer,cdi,exporter,restore,dpo,plan]=await Promise.all(
@@ -574,6 +574,38 @@ async function viewRightsTest(host) {
   await host.get("/gestion/comptes",viewer,403);
   const listed=(await host.get("/gestion/comptes")).rows.find(row=>row.username==="lecture."+host.kind);
   assert.deepEqual(listed.rights.sort(),["classes_voir","eleves_voir","exclusions_voir","groupes_voir","journal","planning_voir","reglages_voir","seances_voir"]);
+  // Export ciblé sans accès aux sauvegardes.
+  await host.post("/gestion/comptes",{username:"pdf."+host.kind,name:"Export planning",password:pass,admin:false,rights:["planning_voir","export_planning"]});
+  const pdf=await host.login("pdf."+host.kind,pass);
+  await host.post("/gestion/export",{type:"planning"},pdf);
+  await host.post("/gestion/export",{type:"appel"},pdf,403);
+  await host.post("/gestion/export",{type:"statistiques"},pdf,403);
+  await host.post("/gestion/export",{type:"archives"},pdf,403);
+  await host.get("/gestion/sauvegarde",pdf,403);
+  await host.post("/gestion/sauvegarde/export",{phrase:"Phrase de sauvegarde 2026"},pdf,403);
+  await host.post("/gestion/export",{type:"planning"},viewer,403); // consulter seul ne suffit pas
+  // Dossiers individuels : consulter sans rectifier, effacer ni exporter ; comptes en consultation.
+  await host.post("/gestion/comptes",{username:"dossier."+host.kind,name:"Dossiers",password:pass,admin:false,rights:["dossiers_voir","comptes_voir"]});
+  const reader=await host.login("dossier."+host.kind,pass);
+  const fake="00000000-0000-0000-0000-000000000000";
+  await host.post("/gestion/dossier/recherche",{q:"zzz"},reader);
+  await host.patch("/gestion/dossier/"+fake,{first_name:"A",last_name:"B"},reader,403);
+  await host.call("/gestion/dossier/"+fake,{method:"DELETE",body:{confirmation:"EFFACER"},session:reader,expected:403});
+  await host.get("/gestion/dossier/"+fake+"/export",reader,403);
+  await host.get("/gestion/comptes",reader);
+  await host.post("/gestion/comptes",{username:"interdit."+host.kind,name:"Interdit",password:pass,admin:false,rights:["dossiers_voir"]},reader,403);
+}
+
+// Migration 0009 : les anciens droits « export » et « donnees » sont répartis sans perte.
+function legacyRightsMigration() {
+  const db=new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE accounts (id TEXT, permissions TEXT)");
+  db.prepare("INSERT INTO accounts VALUES (?,?)").run("a",JSON.stringify(["planning","export","donnees"]));
+  db.prepare("INSERT INTO accounts VALUES (?,?)").run("b",JSON.stringify(["planning_voir","export_planning"]));
+  db.exec(readFileSync("drizzle/0009_finer_rights.sql","utf8"));
+  const rows=Object.fromEntries(db.prepare("SELECT id,permissions FROM accounts").all().map(row=>[row.id,JSON.parse(row.permissions).sort()]));
+  assert.deepEqual(rows.a,["dossiers_voir","donnees","effacer","export_appel","export_dossiers","export_planning","export_statistiques","planning","sauvegarde"].sort());
+  assert.deepEqual(rows.b,["export_planning","planning_voir"]);
 }
 
 // Sécurité : en-têtes communs, méthodes refusées et conversion des anciennes empreintes de mot de passe.
@@ -617,7 +649,11 @@ async function security(host) {
 }
 
 try {
+  // Les scripts du navigateur doivent au moins être syntaxiquement valides.
+  for(const file of readdirSync("public/cdi").filter(name=>name.endsWith(".js")))
+    execFileSync(process.execPath,["--check","--input-type=module"],{input:readFileSync(join("public/cdi",file))});
   exactExpiry();
+  legacyRightsMigration();
   await migration();
   assert.deepEqual(csvRows("Nom;Prénom;Classe;Identifiant interne;INE;Mail\nNom;Prénom;5A;REF;NE PAS GARDER;mail"),[
     {last_name:"Nom",first_name:"Prénom",class_name:"5A",external_id:"REF"},
@@ -639,7 +675,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, recherche par nom, suppression de classe et droits de consultation.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, recherche par nom, suppression de classe, droits de consultation et d’export.");
 } catch(error){
   console.error(output);
   throw error;

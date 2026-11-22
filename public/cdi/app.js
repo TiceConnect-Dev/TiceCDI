@@ -371,30 +371,36 @@ function login(status) {
 }
 
 // Droits par rubrique : [libellé, droit « consulter », droit « gérer », précision].
+// Rubriques : [libellé, droit « consulter », droit « gérer », aide, droit « exporter »].
 const rightAreas = [
   ["Présences", "presence", "sorties", "Gérer : prolonger et enregistrer les sorties"],
-  ["Planning du CDI", "planning_voir", "planning", "Gérer : créer, déplacer et supprimer des créneaux"],
-  ["Fiches d’appel", "seances_voir", "arrivees", "Gérer : faire l’appel et pointer une classe ou un groupe"],
+  ["Planning du CDI", "planning_voir", "planning", "Gérer : créer, déplacer et supprimer des créneaux", "export_planning"],
+  ["Fiches d’appel", "seances_voir", "arrivees", "Gérer : faire l’appel et pointer une classe ou un groupe", "export_appel"],
   ["Exclusions", "exclusions_voir", "exclusions", "Gérer : exclure un élève et lever une exclusion"],
   ["Élèves", "eleves_voir", "eleves", "Gérer : ajouter, modifier et retirer des fiches"],
   ["Classes", "classes_voir", "classes", "Gérer : créer, renommer et supprimer des classes"],
   ["Groupes hors classe", "groupes_voir", "groupes", "Gérer : composer et archiver des groupes"],
+  ["Dossiers individuels", "dossiers_voir", "donnees", "Gérer : rectifier l’identité et la classe d’un élève", "export_dossiers"],
   ["Réglages et horaires de la borne", "reglages_voir", "reglages", "Gérer : ouverture, capacité, message et horaires"],
-  ["Statistiques", "statistiques", null, ""],
+  ["Statistiques", "statistiques", null, "", "export_statistiques"],
   ["Journal des modifications", "journal", null, ""],
+  ["Comptes du personnel", "comptes_voir", "comptes", "Gérer : créer, modifier et supprimer des comptes (dans la limite de ses propres droits)"],
 ];
 const rightActions = [
-  ["import", "Importer des élèves"], ["badges", "Imprimer les codes-barres"], ["borne", "Activer des postes de borne"],
-  ["export", "Exporter (PDF, CSV, sauvegardes)"], ["restaurer", "Restaurer une sauvegarde"], ["donnees", "Traiter les dossiers individuels"],
-  ["comptes", "Gérer les comptes"],
+  ["import", "Importer des élèves (CSV, Pronote, SIECLE)"], ["badges", "Imprimer les cartes codes-barres"], ["borne", "Activer des postes de borne"],
+  ["effacer", "Effacer un dossier individuel sur demande validée"],
+  ["sauvegarde", "Créer et télécharger les sauvegardes chiffrées"], ["restaurer", "Restaurer une sauvegarde"],
 ];
 const rightNames = Object.fromEntries([
-  ...rightAreas.flatMap(([label, view, manage]) => [[view, label + (manage ? " (consulter)" : "")], ...(manage ? [[manage, label + " (gérer)"]] : [])]),
+  ...rightAreas.flatMap(([label, view, manage, , exportKey]) => [[view, label + (manage ? " (consulter)" : "")], ...(manage ? [[manage, label + " (gérer)"]] : []), ...(exportKey ? [[exportKey, label + " (exporter)"]] : [])]),
   ...rightActions,
 ]);
 // Résumé lisible : une rubrique gérée n’affiche pas aussi « consulter ».
 function rightsSummary(rights) {
-  const areas = rightAreas.map(([label, view, manage]) => rights.includes(manage) ? label + " · gérer" : rights.includes(view) ? label + (manage ? " · consulter" : "") : "").filter(Boolean);
+  const areas = rightAreas.map(([label, view, manage, , exportKey]) => {
+    const level = rights.includes(manage) ? label + " · gérer" : rights.includes(view) ? label + (manage ? " · consulter" : "") : "";
+    return level && exportKey && rights.includes(exportKey) ? level + " + export" : level;
+  }).filter(Boolean);
   return [...areas, ...rightActions.filter(([key]) => rights.includes(key)).map(([, label]) => label)].join(", ");
 }
 // Menu de gestion : [clé, titre de la page, icône, droits, groupe, libellé court du menu].
@@ -409,14 +415,14 @@ const tabs = [
   ["groupes", "Groupes hors classe", "users", ["groupes","groupes_voir"], "eleves", "Groupes"],
   ["import", "Importer des élèves", "upload", ["import"], "eleves", "Importer"],
   ["badges", "Codes-barres", "scan", ["badges"], "eleves"],
-  ["dossiers", "Dossiers individuels", "users", ["donnees"], "eleves", "Dossiers"],
+  ["dossiers", "Dossiers individuels", "users", ["dossiers_voir","donnees"], "eleves", "Dossiers"],
   ["borne-poste", "Activation de la borne", "scan", ["borne"], "borne", "Postes de borne"],
   ["reglages", "Réglages de la borne", "settings", ["reglages","reglages_voir"], "borne", "Réglages et horaires"],
-  ["comptes", "Comptes et droits", "lock", ["comptes"], "admin", "Comptes"],
+  ["comptes", "Comptes et droits", "lock", ["comptes","comptes_voir"], "admin", "Comptes"],
   ["connexion", "Connexion et sécurité", "shield", ["admin"], "admin", "Connexion"],
   ["annees", "Années scolaires", "calendar", ["admin"], "admin"],
   ["journal", "Journal des modifications", "chart", ["journal"], "admin", "Journal"],
-  ["sauvegarde", "Sauvegarde et restauration", "download", ["export","restaurer"], "admin", "Sauvegardes"],
+  ["sauvegarde", "Sauvegarde et restauration", "download", ["sauvegarde","restaurer"], "admin", "Sauvegardes"],
   ["confidentialite", "Établissement et données personnelles", "info", ["admin"], "admin", "Données personnelles"],
   ["securite", "Sécurité du compte", "shield", ["self"], "compte", "Sécurité du compte"],
 ];
@@ -450,7 +456,7 @@ function section(title, desc, actions = "") {
 function adminShell(user, selected) {
   me = user;
   // Double authentification exigée par l’établissement : seule la page « Sécurité du compte » reste accessible.
-  const visible = tabs.filter((tab) => (user.mfa_missing ? tab[0] === "securite" : tab[3].some(can)) && (tab[0]!=="badges" || can("export")));
+  const visible = tabs.filter((tab) => (user.mfa_missing ? tab[0] === "securite" : tab[3].some(can)));
   const selectedTab = visible.find((entry) => entry[0] === selected) ?? visible[0];
   if (!selectedTab) { login({ setup:false }); return; }
   view = selectedTab[0];
@@ -533,10 +539,10 @@ async function render() {
     renderImport();
   } else if (view === "planning") {
     const noticeSettings=await api("/notice");
-    await renderPlanning($("#main"),{section,dialogForm,confirmDialog,toast,showScreenLink:noticeSettings.public_planning, canExport:can("export"), readOnly:!can("planning"),
+    await renderPlanning($("#main"),{section,dialogForm,confirmDialog,toast,showScreenLink:noticeSettings.public_planning, canExport:can("export_planning"), readOnly:!can("planning"),
       openClassArrival:can("arrivees") ? (classes,options)=>startCall(classes,dialogForm,options) : null});
   } else if (view === "seances") {
-    await renderSessions($("#main"),{section,dialogForm,toast,canExport:can("export")});
+    await renderSessions($("#main"),{section,dialogForm,toast,canExport:can("export_appel")});
     if (!can("arrivees")) lockPage($("#main"), "#new-call,#keep-at-cdi,#finish-call", ".call-status");
   } else if (view === "groupes") {
     await renderGroups($("#main"),{section,dialogForm,toast});
@@ -548,15 +554,15 @@ async function render() {
   } else if (view === "journal") {
     await renderJournal($("#main"),{section,toast});
   } else if (view === "sauvegarde") {
-    await renderBackup($("#main"),{section,toast,confirmDialog,canExport:can("export"),canRestore:can("restaurer")});
+    await renderBackup($("#main"),{section,toast,confirmDialog,canExport:can("sauvegarde"),canRestore:can("restaurer")});
   } else if (view === "annees") {
     await renderYears($("#main"),{section,toast,confirmDialog,readCsv});
   } else if (view === "statistiques") {
-    await renderStatistics($("#main"),{section,toast,canExport:can("export")});
+    await renderStatistics($("#main"),{section,toast,canExport:can("export_statistiques")});
   } else if (view==="confidentialite") {
     await renderPrivacy($("#main"),{section,toast,confirmDialog});
   } else if (view==="dossiers") {
-    await renderDossier($("#main"),{section,toast,dialogForm,canExport:can("export")});
+    await renderDossier($("#main"),{section,toast,dialogForm,canExport:can("export_dossiers"),canRectify:can("donnees"),canErase:can("effacer"),readOnlyPill});
   } else if (view==="borne-poste") {
     await renderDevices($("#main"),{section,toast,me,confirmDialog});
   } else if (view === "reglages") {
@@ -580,10 +586,10 @@ async function render() {
         : empty("Aucune exclusion enregistrée", "Les exclusions du CDI apparaîtront ici.", "ban")) + "</section>";
   } else if (view === "comptes") {
     records = (await gestion("comptes")).rows;
-    $("#main").innerHTML = section("Comptes et droits", "Attribuez les accès au personnel du CDI, à la vie scolaire et aux autres services.", button("Créer un compte", "plus", 'data-action="account-new"', "primary"))
+    $("#main").innerHTML = section("Comptes et droits", "Attribuez les accès au personnel du CDI, à la vie scolaire et aux autres services.", can("comptes") ? button("Créer un compte", "plus", 'data-action="account-new"', "primary") : readOnlyPill())
       + '<section class="panel table-panel"><div class="table-top"><h2>Comptes du personnel</h2></div>'
       + table(["Compte", "Accès", "Double authentification", "Actions"], records.map((row) => {
-        const editable = me.admin || (!row.admin && row.id !== me.id && row.rights.every(can));
+        const editable = me.admin || (can("comptes") && !row.admin && row.id !== me.id && row.rights.every(can));
         return `<tr><td><strong>${e(row.name)}</strong><small>${e(row.username)}${row.id === me.id ? " · Votre compte" : ""}</small></td>
           <td class="multiline">${row.admin ? pill("Administrateur") : e(rightsSummary(row.rights))}</td>
           <td>${row.mfa ? pill("Activée","green") : pill("Non","gray")}</td>
@@ -879,9 +885,10 @@ function accountDialog(row) {
   const has = (right) => Boolean(row?.rights.includes(right));
   const profiles = {
     vie:["presence","planning_voir","exclusions_voir","eleves_voir"],
-    enseignant:["planning_voir","seances_voir"],
-    direction:["presence","planning_voir","seances_voir","exclusions_voir","eleves_voir","classes_voir","groupes_voir","reglages_voir","statistiques","journal"],
-    cdi:["sorties","planning","arrivees","exclusions","eleves","classes","groupes","statistiques","import","badges","borne","export"],
+    enseignant:["planning_voir","export_planning","seances_voir"],
+    direction:["presence","planning_voir","export_planning","seances_voir","export_appel","exclusions_voir","eleves_voir","classes_voir","groupes_voir","reglages_voir","statistiques","export_statistiques","journal","comptes_voir"],
+    cdi:["sorties","planning","export_planning","arrivees","export_appel","exclusions","eleves","classes","groupes","statistiques","export_statistiques","import","badges","borne"],
+    rgpd:["dossiers_voir","donnees","export_dossiers","effacer","eleves_voir","journal"],
   };
   // Un agent non administrateur ne peut accorder que les droits qu’il possède lui-même.
   const option = (area, level, key) => `<label class="right-level${key && !can(key) ? " locked" : ""}"><input type="radio" name="area-${area}" value="${key ?? ""}" ${key && !can(key) ? "disabled" : ""}
@@ -896,13 +903,16 @@ function accountDialog(row) {
     <div id="custom-rights" class="stack">
       <label class="field"><span>Modèle</span><select name="profile"><option value="">Droits personnalisés</option>
         <option value="vie">Vie scolaire · consultation</option><option value="enseignant">Enseignant · planning et fiches d’appel</option>
-        <option value="direction">Direction · consultation complète</option><option value="cdi">Équipe CDI · gestion courante</option></select>
+        <option value="direction">Direction · consultation complète</option><option value="cdi">Équipe CDI · gestion courante</option>
+        <option value="rgpd">Référent données · dossiers individuels</option></select>
         <small>Un modèle remplit le tableau ; chaque ligne reste modifiable.</small></label>
       <div class="rights-matrix" role="group" aria-label="Droits par rubrique">
-        <div class="rights-head"><span>Rubrique</span><span>Aucun</span><span>Consulter</span><span>Gérer</span></div>
-        ${rightAreas.map(([label, view, manage, hint], area) => `<div class="rights-row"><div><strong>${e(label)}</strong>${hint ? `<small>${e(hint)}</small>` : ""}</div>
-          ${option(area, "none", null)}${option(area, "view", view)}${manage ? option(area, "manage", manage) : `<span class="right-level empty">—</span>`}</div>`).join("")}
+        <div class="rights-head"><span>Rubrique</span><span>Aucun</span><span>Consulter</span><span>Gérer</span><span>Exporter</span></div>
+        ${rightAreas.map(([label, view, manage, hint, exportKey], area) => `<div class="rights-row" data-area="${area}"><div><strong>${e(label)}</strong>${hint ? `<small>${e(hint)}</small>` : ""}</div>
+          ${option(area, "none", null)}${option(area, "view", view)}${manage ? option(area, "manage", manage) : `<span class="right-none" aria-hidden="true">—</span>`}
+          ${exportKey ? `<label class="right-export${can(exportKey) ? "" : " locked"}" title="Exporter en PDF ou CSV"><input type="checkbox" name="rights" value="${exportKey}" ${has(exportKey) ? "checked" : ""} ${can(exportKey) ? "" : "disabled"}><span>Exporter</span></label>` : `<span class="right-none" aria-hidden="true">—</span>`}</div>`).join("")}
       </div>
+      <p class="subtle">« Exporter » permet les PDF et CSV de la rubrique, jamais les sauvegardes complètes, qui ont leur propre case ci-dessous.</p>
       <fieldset><legend>Actions complémentaires</legend><div class="permission-grid">${rightActions.map(([key, label]) =>
         `<label class="check-line${can(key) ? "" : " locked"}"><input type="checkbox" name="rights" value="${key}" ${has(key) ? "checked" : ""} ${can(key) ? "" : "disabled"}> ${e(label)}</label>`).join("")}</div></fieldset>
     </div>`, row ? "Enregistrer" : "Créer le compte", (form) => {
@@ -932,8 +942,24 @@ function accountDialog(row) {
             const input = form.querySelector(`input[name="area-${area}"][value="${value}"]`);
             if (input && !input.disabled) input.checked = true;
           });
-          for (const input of $$('input[name="rights"]', form)) if (!input.disabled) input.checked = chosen.includes(input.value);
+          for (const input of $$('.permission-grid input[name="rights"]', form)) if (!input.disabled) input.checked = chosen.includes(input.value);
+          syncExports();
+          for (const [, , , , exportKey] of rightAreas) {
+            const box = exportKey && form.querySelector(`input[name="rights"][value="${exportKey}"]`);
+            if (box && !box.disabled) box.checked = chosen.includes(exportKey);
+          }
         });
+        // L’export n’a de sens qu’avec un accès à la rubrique : la case se désactive sur « Aucun ».
+        const syncExports = () => rightAreas.forEach(([, , , , exportKey], area) => {
+          const box = exportKey && form.querySelector(`input[name="rights"][value="${exportKey}"]`);
+          if (!box) return;
+          const none = !form.querySelector(`input[name="area-${area}"]:checked`)?.value;
+          box.disabled = none || !can(exportKey);
+          if (none) box.checked = false;
+          box.closest(".right-export").classList.toggle("off", none);
+        });
+        for (const input of $$('input[type=radio]', form)) input.addEventListener("change", syncExports);
+        syncExports();
         for (const input of $$('input[type=radio], input[name="rights"]', form)) input.addEventListener("change", () => { profile.value = ""; });
         sync();
       },
@@ -948,7 +974,7 @@ function actionHandler(event) {
   if (action === "class-arrival" && can("arrivees")) startCall(classes,dialogForm,{roster_id:activeFilters.class}).catch(error=>toast(error.message,"error"));
   if (action === "refresh") fetchPresence().catch((error) => toast(error.message, "error"));
   if (action === "sample") downloadSample();
-  if (action === "print" && can("export")) gestion("export","POST",{type:"badges"}).then(()=>window.print()).catch(error=>toast(error.message,"error"));
+  if (action === "print" && can("badges")) gestion("export","POST",{type:"badges"}).then(()=>window.print()).catch(error=>toast(error.message,"error"));
   if (action==="activate-device" && can("borne")) {
     dialogForm("Activer ce poste",`<p>La session du personnel se fermera et la borne s’ouvrira sur ce navigateur.</p>
       <label class="field"><span>Nom du poste <small>facultatif</small></span><input name="label" maxlength="60" placeholder="Ex. Borne accueil du CDI" autocomplete="off"></label>`,"Activer",async(form)=>{

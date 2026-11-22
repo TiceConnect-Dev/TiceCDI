@@ -151,7 +151,7 @@ function classesResource(Store $db, string $method, ?string $id, array $me): arr
 {
     if ($method === 'GET' && $id === null) {
         need($me, 'classes', 'classes_voir', 'eleves', 'eleves_voir', 'badges', 'import', 'presence', 'sorties', 'arrivees', 'seances_voir',
-            'planning', 'planning_voir', 'groupes', 'groupes_voir', 'exclusions', 'exclusions_voir', 'donnees');
+            'planning', 'planning_voir', 'groupes', 'groupes_voir', 'exclusions', 'exclusions_voir', 'dossiers_voir', 'donnees');
         return ['rows' => $db->all('SELECT c.id,c.name,(SELECT count(*) FROM students s
             WHERE s.class_id=c.id AND s.active=1) AS total FROM classes c ORDER BY c.normalized')];
     }
@@ -220,9 +220,6 @@ function studentsResource(Store $db, string $method, ?string $id, array $me, int
 {
     if ($method === 'GET' && $id === null) {
         $badges = ($filters['badges'] ?? q('badges')) === '1';
-        if ($badges) {
-            need($me, 'export');
-        }
         need($me, ...($badges ? ['badges'] : ['eleves', 'eleves_voir', 'exclusions', 'groupes']));
         $canEdit = in_array('eleves', $me['rights'], true);
         $active = $badges || !$canEdit || ($filters['archived'] ?? q('archived')) !== '1';
@@ -263,11 +260,12 @@ function studentsResource(Store $db, string $method, ?string $id, array $me, int
 
 function accountsResource(Store $db, string $method, ?string $id, array $me, int $clock): array
 {
-    need($me, 'comptes');
+    need($me, 'comptes', 'comptes_voir');
     if ($method === 'GET' && $id === null) {
         $rows = $db->all('SELECT a.*,EXISTS(SELECT 1 FROM account_mfa f WHERE f.account_id=a.id AND f.secret IS NOT NULL) AS mfa FROM accounts a ORDER BY a.admin DESC,a.name');
         return ['rows' => array_map(static fn ($row) => publicAccount($row) + ['mfa' => (bool) $row['mfa']], $rows)];
     }
+    need($me, 'comptes');
     $target = $id === null ? null : $db->one('SELECT * FROM accounts WHERE id=?', $id);
     if ($id !== null && !$target) {
         fail(404, 'Compte introuvable.');

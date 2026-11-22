@@ -230,7 +230,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         return maintain($db,$clock);
     }
     if ($path === '/api/gestion/dossier/recherche' && $method === 'POST') {
-        need($me,'donnees');
+        need($me,'dossiers_voir','donnees');
         $input = clean(requestData()['q'] ?? null);
         $tokens = searchWords($input,8);
         if (mb_strlen(implode('',$tokens),'UTF-8') < 3) {
@@ -241,10 +241,10 @@ function managementResource(Store $db, string $path, string $method, int $clock)
             " WHERE ($filter) OR s.external_id=? ORDER BY s.last_name,s.first_name LIMIT 20", ...[...$tokens,$input])];
     }
     if (preg_match('~^/api/gestion/dossier/([a-f0-9-]+)(/export)?$~D', $path, $matches)) {
-        need($me,'donnees');
+        need($me,'dossiers_voir','donnees');
         $student = $matches[1];
         if (isset($matches[2]) && $method === 'GET') {
-            need($me,'export');
+            need($me,'export_dossiers');
             $file = studentFile($db,$student);
             audit($db,$me,'confidentialite','Export d’un dossier','Dossier individuel',null,null);
             header('Content-Disposition: attachment; filename="Dossier-eleve.json"');
@@ -255,6 +255,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
                 return studentFile($db,$student);
             }
             if ($method === 'PATCH') {
+                need($me,'donnees');
                 $file = studentFile($db,$student);
                 $data = requestData();
                 $s = studentData($data);
@@ -272,6 +273,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
                 return ['ok'=>true];
             }
             if ($method === 'DELETE') {
+                need($me,'effacer');
                 if ((requestData()['confirmation'] ?? null) !== 'EFFACER') {
                     fail(400,'Confirmez l’effacement.');
                 }
@@ -283,16 +285,18 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         }
     }
     if ($path === '/api/gestion/export' && $method === 'POST') {
-        need($me,'export');
         $type = requestData()['type'] ?? '';
-        $rights = ['planning'=>['planning','planning_voir'],'appel'=>['arrivees','seances_voir'],'statistiques'=>['statistiques'],'badges'=>['badges'],'archives'=>['admin']];
-        if (!is_string($type) || !isset($rights[$type])) {
+        // Chaque export a son propre droit, en plus du droit de consulter la rubrique ; il n’ouvre jamais les sauvegardes.
+        $rights = ['planning'=>['export_planning',['planning','planning_voir']],'appel'=>['export_appel',['arrivees','seances_voir']],
+            'statistiques'=>['export_statistiques',['statistiques']],'badges'=>['badges',['badges']],'archives'=>null];
+        if (!is_string($type) || !array_key_exists($type,$rights)) {
             fail(400,'Export inconnu.');
         }
         if ($type === 'archives') {
             adminOnly($me);
         } else {
-            need($me, ...$rights[$type]);
+            need($me, $rights[$type][0]);
+            need($me, ...$rights[$type][1]);
         }
         audit($db,$me,'confidentialite','Export',$type,null,null);
         return ['ok' => true];
@@ -405,7 +409,6 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     }
     if ($method === 'GET' && preg_match('~^/api/gestion/annees/(\d{4}-\d{4})$~D', $path, $matches)) {
         adminOnly($me);
-        need($me,'export');
         if (!$db->one('SELECT label FROM school_year WHERE label=? AND closed_at IS NOT NULL', $matches[1])) {
             fail(404, 'Archive d’année scolaire introuvable.');
         }

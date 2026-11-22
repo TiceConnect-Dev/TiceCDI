@@ -1,5 +1,17 @@
 # Journal des versions
 
+## v1.10.0 · Exports séparés des sauvegardes et droits encore plus fins
+
+- **L’ancien droit « Exporter » est découpé** : chaque rubrique a sa case « Exporter » dans le tableau des droits (PDF du planning, CSV des fiches d’appel, rapport PDF/CSV des statistiques, export d’un dossier individuel). Un compte peut donc exporter le planning en PDF **sans aucun accès aux sauvegardes**.
+- Les sauvegardes ont leurs propres droits : « Créer et télécharger les sauvegardes chiffrées » et « Restaurer une sauvegarde ».
+- **Dossiers individuels** en trois niveaux : consulter, rectifier (gérer) et effacer sur demande validée (case séparée), plus l’export.
+- **Comptes du personnel** : nouveau niveau « Consulter » (liste des comptes et de leurs accès en lecture seule).
+- L’impression des cartes codes-barres ne dépend plus que du droit « Imprimer les cartes ».
+- La case « Exporter » se grise tant que la rubrique est sur « Aucun ». Nouveau modèle « Référent données » ; les modèles Enseignant, Direction et Équipe CDI incluent les exports utiles.
+- Le serveur vérifie chaque export séparément (Node et PHP) ; contrôle de syntaxe des scripts du navigateur ajouté aux tests.
+
+La migration `0009_finer_rights.sql` s’applique seule : un compte qui avait « Exporter » reçoit tous les nouveaux droits d’export et les sauvegardes, un compte qui traitait les dossiers garde consulter, rectifier et effacer. Rien ne change pour les utilisateurs existants.
+
 ## v1.9.0 · Thème clair par défaut et droits de consultation
 
 - Le thème clair s’affiche par défaut ; le thème sombre ne s’active que sur demande (choix mémorisé par navigateur).

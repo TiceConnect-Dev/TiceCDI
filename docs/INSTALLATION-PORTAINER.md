@@ -14,7 +14,7 @@ L’image utilise l’édition Docker du CDI, avec Node.js et SQLite inclus. Le 
 | `CDI_BIND_IP` | `127.0.0.1` | Pour la borne sur le réseau local, mets l’adresse IP interne du serveur. |
 | `CDI_ORIGIN` | Vide | Derrière un reverse proxy, indique l’origine externe exacte, sans chemin ni barre oblique finale. |
 | `CDI_TRUST_PROXY` | `0` | Mets `1` uniquement si le conteneur n’est joignable que par ton reverse proxy. Les tentatives de connexion sont alors comptées par poste réel. |
-| `CDI_IMAGE_TAG` | `latest` | Indique `v1.9.0` si tu veux épingler cette version. |
+| `CDI_IMAGE_TAG` | `latest` | Indique `v1.10.0` si tu veux épingler cette version. |
 | `CDI_PULL_POLICY` | `missing` | Mets `never` pour utiliser une image importée localement. |
 
 4. Clique sur **Deploy the stack**. Dans **Containers**, vérifie que le conteneur a démarré, puis ouvre ses journaux pour lire la clé de première configuration.
