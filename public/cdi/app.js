@@ -4,7 +4,7 @@ import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
 import { siecleRows } from "./shared.js";
 import { routePath, urlFor, brand, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
-import { renderConnection, renderSecurity, securityAlerts } from "./account.js";
+import { renderConnection, renderDevices, renderSecurity, securityAlerts } from "./account.js";
 import { startScanner } from "./scan.js";
 
 const app = document.querySelector("#app");
@@ -269,28 +269,33 @@ const rightNames = {
   arrivees:"Pointer une classe ou un groupe", planning:"Gérer le planning", statistiques:"Consulter les statistiques", groupes:"Gérer les groupes hors classe",
   borne:"Activer un poste de pointage", export:"Exporter les données", restaurer:"Restaurer une sauvegarde", donnees:"Traiter les dossiers individuels",
 };
+// Menu de gestion : [clé, titre de la page, icône, droits, groupe, libellé court du menu].
 const tabs = [
-  ["presences", "Présences", "users", ["presence", "sorties", "arrivees"]],
-  ["planning", "Planning du CDI", "calendar", ["planning"]],
-  ["seances", "Fiches d’appel", "check", ["arrivees"]],
-  ["statistiques", "Statistiques", "chart", ["statistiques"]],
-  ["eleves", "Élèves", "user", ["eleves"]],
-  ["classes", "Classes", "grid", ["classes"]],
-  ["groupes", "Groupes hors classe", "users", ["groupes"]],
-  ["import", "Importer des élèves", "upload", ["import"]],
-  ["badges", "Codes-barres", "scan", ["badges"]],
-  ["exclusions", "Exclusions", "ban", ["exclusions"]],
-  ["comptes", "Comptes et droits", "lock", ["comptes"]],
-  ["reglages", "Réglages de la borne", "settings", ["admin"]],
-  ["annees", "Années scolaires", "calendar", ["admin"]],
-  ["journal", "Journal des modifications", "chart", ["admin"]],
-  ["sauvegarde", "Sauvegarde et restauration", "download", ["export","restaurer"]],
-  ["confidentialite", "Établissement et données personnelles", "lock", ["admin"]],
-  ["dossiers", "Dossiers individuels", "users", ["donnees"]],
-  ["borne-poste", "Activation de la borne", "scan", ["borne"]],
-  ["securite", "Sécurité du compte", "shield", ["self"]],
-  ["connexion", "Connexion et sécurité", "settings", ["admin"]],
+  ["presences", "Présences", "users", ["presence", "sorties", "arrivees"], "jour"],
+  ["planning", "Planning du CDI", "calendar", ["planning"], "jour", "Planning"],
+  ["seances", "Fiches d’appel", "check", ["arrivees"], "jour"],
+  ["exclusions", "Exclusions", "ban", ["exclusions"], "jour"],
+  ["statistiques", "Statistiques", "chart", ["statistiques"], "jour"],
+  ["eleves", "Élèves", "user", ["eleves"], "eleves"],
+  ["classes", "Classes", "grid", ["classes"], "eleves"],
+  ["groupes", "Groupes hors classe", "users", ["groupes"], "eleves", "Groupes"],
+  ["import", "Importer des élèves", "upload", ["import"], "eleves", "Importer"],
+  ["badges", "Codes-barres", "scan", ["badges"], "eleves"],
+  ["dossiers", "Dossiers individuels", "users", ["donnees"], "eleves", "Dossiers"],
+  ["borne-poste", "Activation de la borne", "scan", ["borne"], "borne", "Postes de borne"],
+  ["reglages", "Réglages de la borne", "settings", ["admin"], "borne", "Réglages et horaires"],
+  ["comptes", "Comptes et droits", "lock", ["comptes"], "admin", "Comptes"],
+  ["connexion", "Connexion et sécurité", "shield", ["admin"], "admin", "Connexion"],
+  ["annees", "Années scolaires", "calendar", ["admin"], "admin"],
+  ["journal", "Journal des modifications", "chart", ["admin"], "admin", "Journal"],
+  ["sauvegarde", "Sauvegarde et restauration", "download", ["export","restaurer"], "admin", "Sauvegardes"],
+  ["confidentialite", "Établissement et données personnelles", "info", ["admin"], "admin", "Données personnelles"],
+  ["securite", "Sécurité du compte", "shield", ["self"], "compte", "Sécurité du compte"],
 ];
+const tabGroups = { jour:"Au quotidien", eleves:"Élèves et classes", borne:"Borne", admin:"Administration", compte:"Mon compte" };
+const menuKey = "ticecdi-menu";
+function menuState() { try { return JSON.parse(localStorage.getItem(menuKey)) || {}; } catch { return {}; } }
+function saveMenuState(state) { try { localStorage.setItem(menuKey, JSON.stringify(state)); } catch { /* navigateur sans stockage */ } }
 let me, view, records = [], classes = [], activeFilters = { q:"", class:"", archived:"" }, toastTimer, refreshTimer, rosterVersion = 0;
 const can = (right) => right === "self" || (right === "admin" ? me.admin : me.rights.includes(right));
 const gestion = (resource, method, body) => api("/gestion/" + resource, method, body);
@@ -324,12 +329,21 @@ function adminShell(user, selected) {
   if (routePath() !== "/gestion/" + view) history.replaceState(null, "", urlFor("/gestion/" + view));
   app.innerHTML = `<div class="admin-bg">${header("admin",can("borne"))}<div class="wrap admin-shell">
     <aside class="sidebar"><p class="sidebar-title">Espace de gestion</p><nav aria-label="Administration du CDI">
-      ${visible.map(([key, title, glyph]) => `<a class="side-link" href="${urlFor("/gestion/" + key)}" ${key === view ? 'aria-current="page"' : ""}>${icon(glyph)}${title}</a>`).join("")}
+      ${menu(visible)}
     </nav><p class="user-info">${icon("user")}${e(me.name)}</p></aside>
     <main class="admin-main" id="main"><p class="loading">Chargement…</p></main>
     <dialog class="dialog" id="dialog" aria-labelledby="dialog-title"></dialog><div role="status" class="toast" id="toast" hidden></div>
     </div></div>`;
   $(".side-link[aria-current]")?.scrollIntoView({ block:"nearest", inline:"center" });
+  for (const toggle of $$(".side-toggle")) toggle.addEventListener("click", () => {
+    const group = toggle.closest(".side-group");
+    const open = toggle.getAttribute("aria-expanded") !== "true";
+    toggle.setAttribute("aria-expanded", String(open));
+    group.classList.toggle("collapsed", !open);
+    const state = menuState();
+    state[group.dataset.group] = open;
+    saveMenuState(state);
+  });
   $("#logout").addEventListener("click", async () => {
     try { await api("/auth/logout", "POST"); location.assign(urlFor("/connexion")); }
     catch (error) { toast(error.message, "error"); }
@@ -338,6 +352,20 @@ function adminShell(user, selected) {
   render().then(() => { if (me.admin && !me.mfa_missing) securityAlerts($("#main")); }).catch(pageError);
 }
 
+// Sections repliables ; la section de la page ouverte est toujours dépliée, les autres gardent le dernier choix.
+function menu(visible) {
+  const state = menuState();
+  return Object.entries(tabGroups).map(([group, label]) => {
+    const items = visible.filter((tab) => tab[4] === group);
+    if (!items.length) return "";
+    const open = items.some((tab) => tab[0] === view) || state[group] !== false;
+    const link = ([key, title, glyph, , , short]) => `<a class="side-link" href="${urlFor("/gestion/" + key)}" ${key === view ? 'aria-current="page"' : ""} title="${e(title)}">${icon(glyph)}<span>${e(short ?? title)}</span></a>`;
+    if (visible.length <= 6) return items.map(link).join("");
+    return `<div class="side-group ${open ? "" : "collapsed"}" data-group="${group}">
+      <button type="button" class="side-toggle" aria-expanded="${open}" aria-controls="menu-${group}">${e(label)}${icon("chevron")}</button>
+      <div class="side-items" id="menu-${group}">${items.map(link).join("")}</div></div>`;
+  }).join("");
+}
 function pageError(error) {
   if (error.status === 401) location.assign(urlFor("/connexion?expire=1"));
   else $("#main").innerHTML = `<div class="panel panel-body">${notice(error.message, "error")}</div>`;
@@ -392,9 +420,7 @@ async function render() {
   } else if (view==="dossiers") {
     await renderDossier($("#main"),{section,toast,dialogForm,canExport:can("export")});
   } else if (view==="borne-poste") {
-    $("#main").innerHTML=section("Activation de la borne","Activez ce navigateur sur un poste dédié pour douze heures.")+
-      `<div class="panel panel-body button-row">${button("Activer ce poste","scan",'data-action="activate-device"',"primary")}
-      ${button(me.admin?"Révoquer tous les postes":"Révoquer mes postes","lock",'data-action="revoke-devices"')}</div>`;
+    await renderDevices($("#main"),{section,toast,me,confirmDialog});
   } else if (view === "reglages") {
     await renderKioskSettings();
     await openingForm($("#main"),toast);
@@ -762,11 +788,12 @@ function actionHandler(event) {
   if (action === "sample") downloadSample();
   if (action === "print" && can("export")) gestion("export","POST",{type:"badges"}).then(()=>window.print()).catch(error=>toast(error.message,"error"));
   if (action==="activate-device" && can("borne")) {
-    confirmDialog("Activer ce poste","La session du personnel se fermera et la borne s’ouvrira sur ce poste.","Activer",async()=>{
-      await gestion("borne/activation","POST",{});
+    dialogForm("Activer ce poste",`<p>La session du personnel se fermera et la borne s’ouvrira sur ce navigateur.</p>
+      <label class="field"><span>Nom du poste <small>facultatif</small></span><input name="label" maxlength="60" placeholder="Ex. Borne accueil du CDI" autocomplete="off"></label>`,"Activer",async(form)=>{
+      await gestion("borne/activation","POST",{label:form.elements.label.value});
       await api("/auth/logout","POST");
       location.assign(urlFor("/borne"));
-    },"Poste activé.",()=>{},false);
+    },{success:"Poste activé.",refresh:()=>{}});
   }
   if (action==="revoke-devices" && can("borne")) confirmDialog("Révoquer les activations","Les postes concernés devront être réactivés.","Révoquer",()=>gestion("borne/activation","DELETE"),"Activations révoquées.");
   if (action === "student-new" || (action === "student-edit" && record)) studentDialog(record);

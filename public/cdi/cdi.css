@@ -475,3 +475,40 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .camera-view video{width:100%;height:100%;object-fit:cover;display:block}
 .camera-frame{position:relative}
 .camera-guide{position:absolute;left:12%;right:12%;top:50%;height:2px;background:#e23842;box-shadow:0 0 12px #e23842;pointer-events:none}
+
+/* ── Pleine largeur (v1.6) : le site occupe toute la largeur de l'écran (hors impression) ── */
+@media screen{
+  .wrap{width:calc(100% - 2 * clamp(14px, 2.4vw, 44px))}
+  .kiosk.wrap{max-width:740px}
+  .login-layout.wrap{max-width:570px}
+  .admin-shell{grid-template-columns:clamp(200px,15vw,260px) minmax(0,1fr)}
+  .settings-panel,.opening-form{max-width:none}
+}
+@media screen and (min-width:1600px){
+  .metrics{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .badge-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+}
+@media screen and (max-width:930px){.admin-shell{grid-template-columns:178px minmax(0,1fr)}}
+@media screen and (max-width:680px){.admin-shell{grid-template-columns:minmax(0,1fr)}}
+
+/* ── Menu de gestion regroupé (v1.6) ── */
+.side-group{margin-bottom:4px}
+.side-toggle{display:flex;width:100%;align-items:center;justify-content:space-between;gap:6px;border:0;background:none;padding:9px 9px 5px;color:var(--muted);font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:4px}
+.side-toggle:hover{color:var(--blue)}
+.side-toggle .icon{width:14px;height:14px;transform:rotate(90deg);transition:transform .15s}
+.side-group.collapsed .side-toggle .icon{transform:none}
+.side-group.collapsed .side-items{display:none}
+.side-group+.side-group{border-top:1px solid var(--line);padding-top:4px}
+.sidebar .side-link{padding:7px 9px;margin-bottom:1px;font-size:.88rem}
+.sidebar .side-link span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+@media screen and (max-width:680px){
+  /* Sur téléphone : bandeau horizontal avec toutes les rubriques, sans titres de section. */
+  .side-toggle{display:none}
+  .side-group,.side-items,.side-group.collapsed .side-items{display:contents}
+  .side-group+.side-group{border:0;padding:0}
+}
+.devices-intro{margin-bottom:16px}
+.device-settings{display:flex;flex-wrap:wrap;align-items:end;gap:12px 18px}
+.device-settings .field{flex:0 1 340px}
+.device-settings .check-line{margin-bottom:10px}
+.empty-line{padding:22px 18px;color:var(--muted)}

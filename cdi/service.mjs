@@ -3,6 +3,7 @@ import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maint
 import { audit, auditRows } from "./audit.mjs";
 import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
 import { connectionApi, connectionSettings, ssoApi, ssoPublic } from "./connection.mjs";
+import { deviceExpiry, deviceSettings, devicesApi, touchDevice } from "./devices.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
@@ -393,13 +394,16 @@ async function dispatch(request, env, options) {
   if (path.startsWith("/api/borne/")) {
     const token=request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_device=([a-f0-9]{64})(?:;|$)/)?.[1];
     const key=token ? await digest(token) : "";
-    const device=await m.one(`SELECT k.token FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
+    const device=await m.one(`SELECT k.token,k.expires_at,k.last_seen FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
       WHERE k.token=? AND k.expires_at>? AND (a.admin=1 OR EXISTS(SELECT 1 FROM json_each(a.permissions) WHERE value='borne'))`,key,clock);
     if (method==="GET" && path==="/api/borne/reglages") {
       if (!device) return json({activated:false});
+      // Renouvellement automatique : une borne utilisée régulièrement reste activée.
+      const renewed=await touchDevice(m,device,clock);
       const closure=kioskClosure(clock);
       const [settings,state,gauge]=await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock)]);
-      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason});
+      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason},200,
+        renewed ? {"Set-Cookie":cookie(request,token,Math.floor((renewed-clock)/1000),"cdi_device")} : {});
     }
     if (!device) fail(403,"Ce poste doit être activé par le personnel.");
     if (method!=="POST" || !["/api/borne/entree","/api/borne/sortie"].includes(path)) fail(404,"Action introuvable.");
@@ -450,16 +454,24 @@ async function dispatch(request, env, options) {
   const configured = await connectionApi({ m, request, me, path, method, clock, json, fail, payload, audit,
     callback: url.origin + "/api/auth/sso/callback" });
   if (configured) return configured;
+  const deviceToken = request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_device=([a-f0-9]{64})(?:;|$)/)?.[1];
+  const devices = await devicesApi({ m, request, me, path, method, clock, json, fail, payload, audit,
+    currentDevice: deviceToken ? (await digest(deviceToken)).slice(0, 16) : "" });
+  if (devices) return devices;
   const secured = await securityApi({ m, request, me, path, method, clock, json, fail, payload, audit, verifyPassword, cookie,
     currentToken: token ? await digest(token) : "" });
   if (secured) return secured;
   if (path==="/api/gestion/borne/activation" && method==="POST") {
     need("borne");
+    const data=request.headers.get("content-type")?.startsWith("application/json") ? await payload(request) : {};
+    const name=clean(data.label).slice(0,60);
     const token=random(32);
-    const maxAge=12*3600;
+    const expires=deviceExpiry(await deviceSettings(m),clock);
+    const maxAge=Math.floor((expires-clock)/1000);
     await m.batch([
-      m.stmt("INSERT INTO kiosk_devices VALUES (?,?,?)",await digest(token),me.id,clock+maxAge*1000),
-      audit(m,me,"confidentialite","Activation d’un poste","Borne",null,null),
+      m.stmt("INSERT INTO kiosk_devices (token,account_id,expires_at,label,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?,?)",
+        await digest(token),me.id,expires,name,clock,clock,agentSummary(request.headers.get("user-agent") ?? ""),String(client).slice(0,64)),
+      audit(m,me,"confidentialite","Activation d’un poste",name||"Borne",null,null),
     ]);
     return json({ok:true},200,{"Set-Cookie":cookie(request,token,maxAge,"cdi_device")});
   }

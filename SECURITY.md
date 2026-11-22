@@ -18,7 +18,7 @@ N’ouvrez pas d’issue publique. Utilisez **Security → Report a vulnerabilit
 | Tentatives | Limitation par poste (30 essais / 10 min) et par identifiant (12 essais / 10 min), clé d’installation limitée elle aussi. |
 | Requêtes | Contrôle d’origine et de `Sec-Fetch-Site` sur les écritures, corps JSON obligatoire, tailles bornées, requêtes SQL paramétrées. |
 | En-têtes | CSP sans script en ligne, `X-Frame-Options`, `Permissions-Policy`, COOP/CORP, `nosniff`, `X-Robots-Tag: noindex`, HSTS en HTTPS. |
-| Borne | Poste activé par un membre du personnel (cookie dédié de 12 heures), révocable à tout moment. |
+| Borne | Poste activé par un membre du personnel (cookie dédié), durée réglable (12 h, 7 j, 30 j ou année scolaire), renouvellement glissant facultatif, liste des postes avec révocation poste par poste. La borne ne donne accès qu’au pointage. |
 | Données | Base SQLite hors de la racine web, dossier en `0700`, sauvegardes chiffrées (AES-GCM), purge automatique et journal des modifications. |
 | Docker | Utilisateur non-root, code en lecture seule, aucun gestionnaire de paquets JavaScript, système de fichiers en lecture seule, aucune capacité Linux. |
 

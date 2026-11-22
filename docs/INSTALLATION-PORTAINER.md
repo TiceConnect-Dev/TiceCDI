@@ -14,11 +14,11 @@ L’image utilise l’édition Docker du CDI, avec Node.js et SQLite inclus. Le 
 | `CDI_BIND_IP` | `127.0.0.1` | Pour la borne sur le réseau local, mets l’adresse IP interne du serveur. |
 | `CDI_ORIGIN` | Vide | Derrière un reverse proxy, indique l’origine externe exacte, sans chemin ni barre oblique finale. |
 | `CDI_TRUST_PROXY` | `0` | Mets `1` uniquement si le conteneur n’est joignable que par ton reverse proxy. Les tentatives de connexion sont alors comptées par poste réel. |
-| `CDI_IMAGE_TAG` | `latest` | Indique `v1.5.0` si tu veux épingler cette version. |
+| `CDI_IMAGE_TAG` | `latest` | Indique `v1.6.0` si tu veux épingler cette version. |
 | `CDI_PULL_POLICY` | `missing` | Mets `never` pour utiliser une image importée localement. |
 
 4. Clique sur **Deploy the stack**. Dans **Containers**, vérifie que le conteneur a démarré, puis ouvre ses journaux pour lire la clé de première configuration.
-5. Depuis un poste autorisé, ouvre `http://IP_DU_SERVEUR:8080/gestion` avec le port choisi et crée le compte administrateur. Active le poste dédié via **Activation de la borne**. L’écran de planning à `/planning-ecran` s’ouvre quand l’affichage public est autorisé.
+5. Depuis un poste autorisé, ouvre `http://IP_DU_SERVEUR:8080/gestion` avec le port choisi et crée le compte administrateur. Active le poste dédié via **Borne → Postes de borne**. L’écran de planning à `/planning-ecran` s’ouvre quand l’affichage public est autorisé.
 
 Déploie TiceCDI en HTTPS sur une infrastructure autorisée par l’établissement. Pour un reverse proxy en conteneur, configure un réseau Docker partagé et fais pointer le proxy vers le service CDI sur le port **8080**. Définis `CDI_ORIGIN` sur l’URL HTTPS utilisée par le navigateur et `CDI_TRUST_PROXY=1`.
 

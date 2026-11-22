@@ -469,6 +469,43 @@ function weekMonday() {
   return now.toISOString().slice(0,10);
 }
 
+// Postes de borne : durée réglable, renouvellement automatique à l'usage et révocation poste par poste.
+async function devicesTest(host) {
+  const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
+  let state=await host.get("/gestion/borne/postes");
+  assert.deepEqual(state.settings,{duration:"30j",renew:true});
+  const activation=await host.call("/gestion/borne/activation",{method:"POST",body:{label:"Borne accueil"}});
+  const device=activation.cookies.find(c=>c.startsWith("cdi_device="));
+  const setCookie=(await fetch(host.route("/api/gestion/borne/activation"),{method:"POST",headers:{"Content-Type":"application/json",Cookie:host.admin},body:"{}"}));
+  const maxAge=setCookie.headers.getSetCookie().find(c=>c.startsWith("cdi_device=")); await setCookie.arrayBuffer();
+  const seconds=maxAge.match(/Max-Age=(\d+)/i)?.[1] ?? Math.round((Date.parse(maxAge.match(/expires=([^;]+)/i)[1])-Date.now())/1000);
+  assert.ok(Math.abs(seconds-30*86400)<120,maxAge);
+  state=await host.get("/gestion/borne/postes");
+  const row=state.rows.find(item=>item.label==="Borne accueil");
+  assert.ok(row && /^[a-f0-9]{16}$/.test(row.id) && row.activated_by && row.created_at>0);
+  // Renouvellement glissant : une borne qui interroge le serveur repousse son échéance et reçoit un nouveau cookie.
+  const key=createHash("sha256").update(device.split("=")[1]).digest("hex");
+  db.prepare("UPDATE kiosk_devices SET expires_at=?,last_seen=? WHERE token=?").run(Date.now()+86400000,Date.now()-120000,key);
+  const poll=await fetch(host.route("/api/borne/reglages"),{headers:{Cookie:device}});
+  assert.equal((await poll.json()).activated,true);
+  assert.ok(poll.headers.getSetCookie().some(c=>c.startsWith("cdi_device=")));
+  assert.ok(db.prepare("SELECT expires_at FROM kiosk_devices WHERE token=?").all(key)[0].expires_at>Date.now()+29*86400000);
+  // Durée de 12 h sans renouvellement.
+  await host.patch("/gestion/borne/postes",{duration:"2h",renew:true},host.admin,400);
+  assert.deepEqual(await host.patch("/gestion/borne/postes",{duration:"12h",renew:false}),{duration:"12h",renew:false});
+  db.prepare("UPDATE kiosk_devices SET last_seen=? WHERE token=?").run(Date.now()-120000,key);
+  const quiet=await fetch(host.route("/api/borne/reglages"),{headers:{Cookie:device}});
+  await quiet.json();
+  assert.ok(!quiet.headers.getSetCookie().some(c=>c.startsWith("cdi_device=")));
+  // Révocation d'un seul poste.
+  await host.call("/gestion/borne/postes/"+row.id,{method:"DELETE"});
+  await host.call("/gestion/borne/postes/"+row.id,{method:"DELETE",expected:404});
+  assert.equal((await (await fetch(host.route("/api/borne/reglages"),{headers:{Cookie:device}})).json()).activated,false);
+  assert.ok((await host.get("/gestion/journal?area=confidentialite")).rows.some(item=>item.action==="Révocation d’un poste"));
+  await host.patch("/gestion/borne/postes",{duration:"30j",renew:true});
+  db.close();
+}
+
 // Sécurité : en-têtes communs, méthodes refusées et conversion des anciennes empreintes de mot de passe.
 async function security(host) {
   for(const path of ["/","/api/auth/status","/cdi/cdi.css"]) {
@@ -519,6 +556,7 @@ try {
   const n=await exercise(node), p=await exercise(phpHost);
   await security(node); await security(phpHost);
   await accountSecurity(node); await accountSecurity(phpHost);
+  await devicesTest(node); await devicesTest(phpHost);
   const idp=await identityProvider();
   try { await connectionSettingsTest(node,idp); await connectionSettingsTest(phpHost,idp); } finally { idp.close(); }
   assert.ok((await node.post("/gestion/sauvegarde",{backup:p.old,phrase:secret},n.restore)).token);
@@ -530,7 +568,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT et règles de connexion.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion et postes de borne.");
 } catch(error){
   console.error(output);
   throw error;

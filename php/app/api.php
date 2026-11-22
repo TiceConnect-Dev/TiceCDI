@@ -127,11 +127,16 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
     }
     $token = $_COOKIE['cdi_device'] ?? '';
     $key = is_string($token) && preg_match('/^[a-f0-9]{64}$/D', $token) ? hash('sha256', $token) : '';
-    $device = $db->one("SELECT k.token FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
+    $device = $db->one("SELECT k.token,k.expires_at,k.last_seen FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
         WHERE k.token=? AND k.expires_at>? AND (a.admin=1 OR EXISTS(SELECT 1 FROM json_each(a.permissions) WHERE value='borne'))", $key, $clock);
     if ($method === 'GET' && $path === '/api/borne/reglages') {
         if (!$device) {
             return ['activated' => false];
+        }
+        // Renouvellement automatique : une borne utilisée régulièrement reste activée.
+        $renewed = touchDevice($db, $device, $clock);
+        if ($renewed !== null) {
+            cookie($token, intdiv($renewed, 1000), 'cdi_device');
         }
         $settings = kioskSettings($db);
         $reason = closure($db, $clock, $settings);
@@ -170,6 +175,10 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     if ($me['mfa_missing'] && !str_starts_with($path, '/api/gestion/securite')) {
         fail(403, 'Votre établissement exige la double authentification : activez-la dans « Sécurité du compte ».');
     }
+    $devices = devicesResource($db, $path, $method, $me, $clock);
+    if ($devices !== null) {
+        return $devices;
+    }
     $configured = connectionResource($db, $path, $method, $me, $clock);
     if ($configured !== null) {
         return $configured;
@@ -181,9 +190,13 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     if ($path === '/api/gestion/borne/activation' && in_array($method, ['POST','DELETE'], true)) {
         need($me, 'borne');
         if ($method === 'POST') {
+            $data = ($_SERVER['CONTENT_TYPE'] ?? '') !== '' ? requestData() : [];
+            $name = mb_substr(clean($data['label'] ?? null), 0, 60, 'UTF-8');
             $token = bin2hex(random_bytes(32));
-            $expires = $clock + 12*HOUR_MS;
-            $db->run('INSERT INTO kiosk_devices VALUES (?,?,?)', hash('sha256',$token), $me['id'], $expires);
+            $expires = deviceExpiry(deviceSettings($db), $clock);
+            $db->run('INSERT INTO kiosk_devices (token,account_id,expires_at,label,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?,?)',
+                hash('sha256',$token), $me['id'], $expires, $name, $clock, $clock,
+                agentSummary((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), substr(clientAddress(), 0, 64));
             cookie($token, intdiv($expires,1000), 'cdi_device');
         } elseif ($me['admin']) {
             $db->run('DELETE FROM kiosk_devices');

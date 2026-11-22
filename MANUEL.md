@@ -4,6 +4,8 @@ Présences, planning et fréquentation du CDI · Une application de TiceConnect
 
 ## 1. Mettre en service
 
+Le menu de gestion est regroupé en sections (**Au quotidien**, **Élèves et classes**, **Borne**, **Administration**, **Mon compte**) que l’on replie d’un clic ; le choix est mémorisé sur le navigateur. Le site occupe toute la largeur de l’écran.
+
 Suivez le [guide PHP](docs/INSTALLATION-PHP.md) ou le [guide Docker et Portainer](docs/INSTALLATION-PORTAINER.md). Au premier démarrage, créez un compte administrateur nominatif avec la clé d’installation générée localement. Attribuez un compte nominatif à chaque agent et les seuls droits utiles à ses missions. Avant l’ouverture, suivez la [check-list de sécurité](SECURITY.md#check-list-de-mise-en-production) : HTTPS, adresse publique dans `CDI_ORIGIN` et accès à la gestion limité au réseau de l’établissement.
 
 Dans **Établissement et données personnelles**, renseignez l’identité et le contact de l’établissement, le contact du DPD, la finalité, la base légale, la source, les destinataires, l’hébergement, les durées et les modalités d’exercice des droits. Vérifiez les trois documents avant diffusion. La notice courte est accessible depuis la borne et la notice complète peut être téléchargée pour l’ENT. La fiche de registre est un modèle à valider et compléter localement.
@@ -18,13 +20,15 @@ Pour un traitement mis en œuvre localement dans un collège ou lycée public, l
 | --- | --- |
 | Vie scolaire | Consulter les présences, selon le droit attribué. |
 | Personnel du CDI | Consulter et gérer les présences et prolongations selon ses droits. |
-| Activer un poste | Ouvrir une borne de pointage sur un navigateur dédié pendant douze heures. |
+| Activer un poste | Ouvrir une borne de pointage sur un navigateur dédié (durée fixée par l’administrateur). |
 | Exporter | Télécharger les sauvegardes chiffrées. Les exports ciblés exigent aussi le droit de consulter leur rubrique. |
 | Restaurer | Analyser et appliquer une sauvegarde ou un état de reprise. |
 | Traiter les dossiers individuels | Rechercher, consulter et rectifier un dossier, ou l’effacer sur demande validée. |
 | Administrateur | Configurer l’établissement et les droits, accéder au journal et exécuter les opérations d’administration. |
 
-Sur le poste dédié, ouvrez **Activation de la borne**, choisissez **Activer ce poste** et confirmez. La session du personnel se ferme et la borne s’ouvre. Une activation expirée ou révoquée nécessite une nouvelle intervention. Une restauration révoque aussi les activations en cours. Les agents chargés de la seule consultation disposent de leur propre accès dans **Présences**.
+Sur le poste dédié, ouvrez **Borne → Postes de borne**, choisissez **Activer ce poste**, donnez-lui un nom (par exemple « Borne accueil ») et confirmez. La session du personnel se ferme et la borne s’ouvre. Une restauration révoque les activations en cours. Les agents chargés de la seule consultation disposent de leur propre accès dans **Présences**.
+
+L’administrateur choisit sur la même page la **durée d’activation** (12 heures, 7 jours, 30 jours ou jusqu’au 31 août) et le **renouvellement automatique** : une borne qui sert régulièrement est alors prolongée d’elle-même et n’a plus à être réactivée ; une borne éteinte plus longtemps que la durée choisie expire. Par défaut : 30 jours, renouvelés à l’usage. La liste des postes indique qui les a activés, leur dernière activité et leur validité ; **Révoquer** désactive un seul poste, **Révoquer tous les postes** les désactive tous.
 
 Sur la borne, scannez la carte CDI ou saisissez son code. L’élève choisit **Entrée** ou **Sortie**. Une douchette Code 128 en mode clavier HID avec suffixe Entrée peut valider l’entrée depuis le champ. La borne efface la saisie après chaque pointage et la confirmation disparaît au bout de cinq secondes. Elle n’affiche ni nom, ni annuaire, ni liste des présents.
 

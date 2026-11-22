@@ -217,3 +217,43 @@ export async function renderConnection(target, { section, toast }) {
     } catch (error) { result.innerHTML = notice(error.message, "error"); }
   });
 }
+
+const durationNames = { "12h":"12 heures", "7j":"7 jours", "30j":"30 jours", annee:"Jusqu’à la fin de l’année scolaire (31 août)" };
+// Page « Postes de borne » : activation, durée et renouvellement (administrateurs), liste des postes activés.
+export async function renderDevices(target, { section, toast, me, confirmDialog }) {
+  const data = await gestion("borne/postes");
+  const reload = () => renderDevices(target, { section, toast, me, confirmDialog });
+  const { settings, rows } = data;
+  const expiry = (row) => settings.renew && settings.duration !== "annee"
+    ? `Renouvelée à l’usage<small>sinon le ${stamp(row.expires_at)}</small>` : stamp(row.expires_at);
+  target.innerHTML = section("Postes de borne", "Activez un navigateur dédié au pointage et gérez les postes déjà activés.",
+    button("Activer ce poste", "scan", 'data-action="activate-device"', "primary")) + `
+    <section class="panel panel-body stack devices-intro">
+      <p>Ce navigateur ${rows.some((row) => row.current) ? "<strong>est déjà activé</strong> comme borne." : "n’est pas activé comme borne."}
+        Activation valable <strong>${e(durationNames[settings.duration])}</strong>${settings.renew && settings.duration !== "annee" ? ", <strong>renouvelée automatiquement</strong> tant que la borne est utilisée" : ""}.</p>
+      ${me.admin ? `<form id="device-settings" class="device-settings">
+        <label class="field"><span>Durée d’activation</span><select name="duration">${Object.entries(durationNames).map(([value, name]) => `<option value="${value}" ${value === settings.duration ? "selected" : ""}>${name}</option>`).join("")}</select></label>
+        <label class="check-line"><input type="checkbox" name="renew" ${settings.renew ? "checked" : ""}> Renouveler automatiquement tant que la borne est utilisée</label>
+        <button class="btn secondary" type="submit">${icon("check")} Enregistrer</button></form>
+        <p class="subtle">La nouvelle durée s’applique aux prochaines activations et aux renouvellements. Une borne ne donne accès qu’au pointage.</p>` : ""}
+    </section>
+    <section class="panel table-panel"><div class="table-top"><h2>${me.admin ? "Postes activés" : "Mes postes activés"}</h2>${pill(rows.length + " poste" + (rows.length > 1 ? "s" : ""))}
+      ${rows.length ? button(me.admin ? "Révoquer tous les postes" : "Révoquer mes postes", "lock", 'data-action="revoke-devices"', "danger") : ""}</div>
+      ${rows.length ? table(["Poste", "Activé par", "Activé le", "Dernière activité", "Validité", "Action"], rows.map((row) => `<tr>
+        <td><strong>${e(row.label || "Poste sans nom")}</strong><small>${e(row.agent || "Navigateur inconnu")} · ${e(row.address || "—")}${row.current ? " · ce navigateur" : ""}</small></td>
+        <td>${e(row.activated_by)}</td><td>${stamp(row.created_at)}</td><td>${stamp(row.last_seen)}</td><td class="multiline">${expiry(row)}</td>
+        <td>${button("Révoquer", "ban", `data-device="${e(row.id)}" data-label="${e(row.label || "ce poste")}"`, "danger tiny")}</td></tr>`))
+        : `<p class="empty-line">Aucun poste activé pour le moment.</p>`}</section>`;
+  target.querySelector("#device-settings")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await gestion("borne/postes", "PATCH", { duration:form.elements.duration.value, renew:form.elements.renew.checked });
+      toast("Durée d’activation enregistrée.");
+      await reload();
+    } catch (error) { toast(error.message, "error"); }
+  });
+  target.querySelectorAll("[data-device]").forEach((node) => node.addEventListener("click", () =>
+    confirmDialog("Révoquer le poste", `« ${node.dataset.label} » devra être réactivé par le personnel pour pointer à nouveau.`, "Révoquer",
+      () => gestion("borne/postes/" + node.dataset.device, "DELETE"), "Poste révoqué.", reload)));
+}

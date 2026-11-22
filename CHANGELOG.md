@@ -1,5 +1,20 @@
 # Journal des versions
 
+## v1.6.0 · Postes de borne, pleine largeur et menu regroupé
+
+**Borne**
+
+- Durée d’activation réglable par l’administrateur : 12 heures, 7 jours, 30 jours ou jusqu’à la fin de l’année scolaire (31 août). **Par défaut : 30 jours.**
+- Renouvellement automatique (activé par défaut) : une borne utilisée régulièrement est prolongée d’elle-même et n’a plus besoin d’être réactivée.
+- Nouvelle page **Postes de borne** : nom du poste à l’activation, liste des postes (activé par, date, dernière activité, navigateur et poste, validité) et révocation poste par poste.
+
+**Interface**
+
+- Le site occupe toute la largeur de l’écran (les pages de connexion et de borne restent centrées).
+- Menu de gestion regroupé en sections repliables (Au quotidien, Élèves et classes, Borne, Administration, Mon compte), libellés raccourcis, état mémorisé. Sur téléphone, toutes les rubriques restent dans le bandeau défilant.
+
+La migration `0007_kiosk_devices.sql` s’applique seule. Les postes déjà activés passent au renouvellement automatique dès leur prochaine utilisation.
+
 ## v1.5.0 · Connexion ENT, règles de connexion, statistiques, imports et caméra
 
 **Connexion et sécurité** (nouvelle rubrique réservée aux administrateurs)
