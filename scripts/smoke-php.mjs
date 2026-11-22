@@ -515,6 +515,11 @@ async function devicesTest(host) {
   const foreign=await fetch(host.route("/api/borne/sortie"),{method:"POST",headers:{"Content-Type":"application/json",Cookie:"cdi_device="+"0".repeat(64)},body:JSON.stringify({ref:search.rows[0].ref})});
   await foreign.arrayBuffer(); assert.equal(foreign.status,403);
   assert.equal((await kiosk("sortie",{ref:search.rows[0].ref})).status,200);
+  // Carte scannée : premier passage = entrée, second passage = sortie.
+  const card=db.prepare("SELECT code FROM students WHERE search_name LIKE '%zelie%'").all()[0].code;
+  const first=await (await kiosk("auto",{code:card.toLowerCase()})).json();
+  assert.ok(first.expires_at && first.direction===undefined,JSON.stringify(first));
+  assert.equal((await (await kiosk("auto",{code:card})).json()).direction,"sortie");
   const expired=await kiosk("entree",{ref:"f".repeat(32)}); await expired.arrayBuffer(); assert.equal(expired.status,410);
   await host.patch("/gestion/borne/postes",{duration:"30j",renew:true,name_search:false});
   const disabled=await kiosk("recherche",{q:"zelie"}); await disabled.arrayBuffer(); assert.equal(disabled.status,403);

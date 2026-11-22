@@ -418,7 +418,7 @@ async function dispatch(request, env, options) {
         ...rows.map(row=>m.stmt("INSERT INTO kiosk_refs VALUES (?,?,?,?)",row.ref,row.student_id,key,clock+180_000))]);
       return json({rows:rows.map(({student_id,...row})=>row),more:found.length>6});
     }
-    if (method!=="POST" || !["/api/borne/entree","/api/borne/sortie"].includes(path)) fail(404,"Action introuvable.");
+    if (method!=="POST" || !["/api/borne/entree","/api/borne/sortie","/api/borne/auto"].includes(path)) fail(404,"Action introuvable.");
     await throttle(m,"checkin:"+key,90);
     const data=await payload(request);
     // Élève choisi dans la recherche par nom : la sélection temporaire remplace le code de la carte.
@@ -431,9 +431,11 @@ async function dispatch(request, env, options) {
     if (!/^CDI[0-9A-F]{10}$/.test(code)) fail(400,"Scanne ou saisis le code de ta carte CDI.");
     const person=await m.one(`SELECT s.id,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
       WHERE s.active=1 AND s.code=?`,code);
-    if (path.endsWith("/sortie")) {
+    // Carte scannée : sortie si l’élève est déjà présent, entrée sinon.
+    const present=path.endsWith("/auto") && person && await m.one("SELECT 1 AS yes FROM visits WHERE student_id=? AND ended_at IS NULL AND expires_at>?",person.id,clock);
+    if (path.endsWith("/sortie") || present) {
       if (person) await m.run("UPDATE visits SET ended_at=? WHERE student_id=? AND ended_at IS NULL AND expires_at>?",clock,person.id,clock);
-      return json({ok:true});
+      return json({ok:true,direction:"sortie"});
     }
     const closure = kioskClosure(clock);
     if (!person) {

@@ -149,7 +149,7 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
     if ($method === 'POST' && $path === '/api/borne/recherche') {
         return kioskSearch($db, $key, requestData()['q'] ?? null, $clock);
     }
-    if ($method !== 'POST' || !in_array($path, ['/api/borne/entree','/api/borne/sortie'], true)) {
+    if ($method !== 'POST' || !in_array($path, ['/api/borne/entree','/api/borne/sortie','/api/borne/auto'], true)) {
         fail(404, 'Action introuvable.');
     }
     throttle($db, 'checkin:' . $key, 90);
@@ -164,7 +164,10 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
     }
     return $db->atomic(static function () use ($db, $path, $data): array {
         $now = clockMs();
-        if ($path === '/api/borne/entree') {
+        // Carte scannée : sortie si l’élève est déjà présent, entrée sinon.
+        $present = $path === '/api/borne/auto' && $db->one('SELECT 1 FROM visits v JOIN students s ON s.id=v.student_id
+            WHERE s.active=1 AND s.code=? AND v.ended_at IS NULL AND v.expires_at>?', strtoupper(clean($data['code'] ?? null)), $now);
+        if ($path === '/api/borne/entree' || ($path === '/api/borne/auto' && !$present)) {
             return kioskCheckIn($db, $data, $now);
         }
         $code = strtoupper(clean($data['code'] ?? null));
@@ -173,7 +176,7 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         }
         $db->run('UPDATE visits SET ended_at=? WHERE ended_at IS NULL AND expires_at>?
             AND student_id IN (SELECT id FROM students WHERE active=1 AND code=?)', $now, $now, $code);
-        return ['ok' => true];
+        return ['ok' => true, 'direction' => 'sortie'];
     });
 }
 

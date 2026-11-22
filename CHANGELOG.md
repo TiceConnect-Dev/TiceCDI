@@ -1,5 +1,13 @@
 # Journal des versions
 
+## v1.8.0 · Pointage par le nom en un geste
+
+- La borne propose directement un champ unique « Ton nom, ton prénom ou ta carte CDI » : plus besoin de cliquer sur « Pas de carte ? ».
+- Les noms s’affichent pendant la frappe (3 lettres minimum) ; **toucher son nom enregistre l’entrée immédiatement**, sans bouton Entrée. Un bouton « Sortir » sur chaque nom enregistre la sortie.
+- Touche Entrée du clavier : s’il ne reste qu’un nom, il est enregistré.
+- **Carte scannée = enregistrement automatique** : premier passage, entrée ; passage suivant, sortie. Plus de bouton à toucher. Un double scan accidentel dans les 10 secondes est ignoré. Fonctionne avec une douchette (avec ou sans touche Entrée), le code tapé à la main et la caméra.
+- Si la recherche par nom est désactivée dans **Postes de borne**, la borne revient au pointage par carte uniquement.
+
 ## v1.7.0 · Nouvelle borne, recherche par nom et suppression de classe
 
 **Borne élèves**

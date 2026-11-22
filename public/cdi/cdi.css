@@ -595,11 +595,20 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .borne-search{display:grid;gap:12px}
 .borne-search-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .borne-search .borne-scan input{font-family:inherit;letter-spacing:0;text-transform:none;font-size:clamp(1.4rem,2.4vw,2.1rem)}
-.borne-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-.borne-result{display:grid;gap:2px;text-align:left;padding:14px 18px;border-radius:14px;border:2px solid var(--line);background:var(--canvas);color:var(--ink);font-size:clamp(1.05rem,1.5vw,1.3rem)}
-.borne-result strong{font-size:1.15em}
-.borne-result span{color:var(--muted);font-weight:700}
-.borne-result:hover,.borne-result:focus-visible{border-color:var(--blue);background:var(--pale)}
+.borne-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.borne-results:empty{display:none}
+.borne-result{display:flex;align-items:stretch;border-radius:16px;border:2px solid var(--line);background:var(--canvas);overflow:hidden}
+.borne-result:hover,.borne-result:focus-within{border-color:var(--blue)}
+.borne-result-in{flex:1;display:grid;gap:3px;text-align:left;padding:16px 18px;border:0;background:none;color:var(--ink);font-size:clamp(1.05rem,1.5vw,1.3rem)}
+.borne-result-in strong{font-size:clamp(1.3rem,2vw,1.7rem);letter-spacing:-.02em}
+.borne-result-in span{color:var(--muted);font-weight:700}
+.borne-result-in em{display:inline-flex;align-items:center;gap:6px;margin-top:4px;font-style:normal;font-weight:800;color:#147047;font-size:.9em}
+.borne-result-in em .icon{width:18px;height:18px}
+.borne-result-in:hover{background:var(--pale)}
+.borne-result-out{display:grid;place-items:center;align-content:center;gap:4px;min-width:92px;padding:10px;border:0;border-left:2px solid var(--line);background:var(--white,#fff);color:var(--blue);font-weight:800;font-size:.95rem}
+.borne-result-out .icon{width:26px;height:26px}
+.borne-result-out:hover{background:var(--pale)}
+.borne-result button:disabled{opacity:.5}
 .borne-hint{grid-column:1/-1;color:var(--muted);font-weight:700;font-size:clamp(.95rem,1.3vw,1.1rem)}
 .borne-picked{display:flex;align-items:center;gap:16px;padding:16px 20px;border-radius:16px;background:var(--pale);border:2px solid var(--blue);color:var(--ink)}
 .borne-picked>.icon{width:38px;height:38px;color:var(--blue)}
@@ -611,3 +620,11 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
   .borne-scan .icon{left:16px;width:28px;height:28px}
   .borne-results{grid-template-columns:1fr}
 }
+
+/* Champ unique : saisie libre pour le nom, police à chasse fixe pour un code CDI. */
+.borne-scan input{font-family:inherit;letter-spacing:0;text-transform:none}
+.borne-scan input.is-code{font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}
+@media (max-width:560px){.borne-scan input.is-code{letter-spacing:.05em}.borne-results{grid-template-columns:1fr}}
+.borne-scan input:not(.is-code)::placeholder{letter-spacing:0}
+.borne-card-hint{display:flex;align-items:center;gap:8px;margin-top:-6px}
+.borne-card-hint .icon{width:20px;height:20px}

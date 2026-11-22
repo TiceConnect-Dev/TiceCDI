@@ -52,24 +52,18 @@ function kiosk() {
       <section class="borne-card" aria-labelledby="kiosk-title">
         <div class="borne-hero">
           <h1 id="kiosk-title">Bienvenue au CDI</h1>
-          <p>Scanne ta carte CDI, puis choisis <b>Entrée</b> ou <b>Sortie</b>.</p>
+          <p id="borne-help">Scanne ta carte ou tape ton nom, puis <b>touche ton nom</b> : tu es enregistré·e automatiquement.</p>
           <div class="borne-status" id="borne-status" hidden></div>
         </div>
         <div class="borne-body">
           <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
           <form id="entry-form" autocomplete="off" hidden>
-            <label class="borne-label" for="entry-input">Code de ta carte CDI</label>
-            <div class="borne-scan">${icon("scan")}<input id="entry-input" type="text" inputmode="text" maxlength="13" spellcheck="false" autocapitalize="characters" autocomplete="off" placeholder="CDI…" required></div>
-            <button type="button" class="borne-link" id="name-open" hidden>${icon("search")}<span>Pas de carte ? Cherche ton nom</span></button>
-            <div class="borne-search" id="name-panel" hidden>
-              <div class="borne-search-head"><label class="borne-label" for="name-input">Ton nom ou ton prénom</label>
-                <button type="button" class="borne-link" id="name-close">${icon("scan")}<span>J’ai ma carte</span></button></div>
-              <div class="borne-scan">${icon("search")}<input id="name-input" type="search" autocomplete="off" spellcheck="false" maxlength="60" placeholder="3 lettres minimum"></div>
-              <div id="name-results" class="borne-results" role="listbox" aria-label="Élèves trouvés"></div>
-            </div>
-            <div class="borne-picked" id="name-picked" hidden></div>
+            <label class="borne-label" for="entry-input" id="entry-label">Ton nom, ton prénom ou ta carte CDI</label>
+            <div class="borne-scan">${icon("search")}<input id="entry-input" type="text" maxlength="60" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Ex. Lina ou Martin" required></div>
+            <p class="borne-hint borne-card-hint">${icon("scan")} Avec la carte : un scan pour entrer, un autre pour sortir.</p>
+            <div id="name-results" class="borne-results" role="list" aria-live="polite"></div>
             <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
-            <div class="borne-actions">
+            <div class="borne-actions" id="code-actions">
               <button class="borne-btn borne-in" id="entry-submit" type="submit" name="direction" value="entree">${icon("login")}<span>Entrée</span></button>
               <button class="borne-btn borne-out" type="submit" name="direction" value="sortie">${icon("logout")}<span>Sortie</span></button>
             </div>
@@ -93,48 +87,54 @@ function kiosk() {
   tick();
   setInterval(tick,10_000);
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
-  // Recherche par nom (élèves sans carte) : la sélection devient une référence temporaire envoyée à la place du code.
-  const namePanel=$("#name-panel"), nameInput=$("#name-input"), nameResults=$("#name-results"), picked=$("#name-picked");
-  let pickedRef=null, searchTimer, searchVersion=0, nameIdle;
-  const scanBox=input.closest(".borne-scan"), scanLabel=$('label[for="entry-input"]');
-  function setNameMode(on) {
-    namePanel.hidden=!on;
-    scanBox.hidden=on; scanLabel.hidden=on;
-    $("#name-open").hidden=on || !nameSearchEnabled;
-    input.required=!on;
-    if(!on){ clearPick(); nameInput.value=""; nameResults.replaceChildren(); input.focus({preventScroll:true}); }
-    else nameInput.focus({preventScroll:true});
+  // Un seul champ : un code CDI (douchette ou saisie) ou un nom. Toucher son nom enregistre directement l’entrée.
+  const results=$("#name-results"), codeActions=$("#code-actions");
+  const isCode=(value)=>/^cdi[0-9a-f]*$/i.test(value.trim());
+  let nameSearchEnabled=true, searchTimer, searchVersion=0, idleTimer, rows=[];
+  function clearSearch() { rows=[]; results.replaceChildren(); input.value=""; syncMode(); }
+  function syncMode() {
+    const value=input.value.trim();
+    const code=!nameSearchEnabled || !value || isCode(value);
+    input.classList.toggle("is-code",nameSearchEnabled ? Boolean(value) && isCode(value) : true);
+    // Les boutons ne servent plus qu’en dernier recours : une carte complète est enregistrée automatiquement.
+    codeActions.hidden=true;
+    if(code) { rows=[]; results.replaceChildren(); }
   }
-  function clearPick() { pickedRef=null; picked.hidden=true; picked.replaceChildren(); }
-  let nameSearchEnabled=false;
-  $("#name-open").addEventListener("click",()=>setNameMode(true));
-  $("#name-close").addEventListener("click",()=>setNameMode(false));
-  nameInput.addEventListener("input",()=>{
-    clearTimeout(searchTimer); clearPick();
-    clearTimeout(nameIdle); nameIdle=setTimeout(()=>setNameMode(false),60_000);
+  let lastCard="", lastCardAt=0;
+  input.addEventListener("input",()=>{
+    syncMode();
+    // Carte scannée ou code complet : enregistrement immédiat (entrée, ou sortie si l’élève est déjà présent).
+    const full=input.value.trim().toUpperCase();
+    if(/^CDI[0-9A-F]{10}$/.test(full)) {
+      if(full===lastCard && Date.now()-lastCardAt<10_000) { input.value=""; syncMode(); show("Carte déjà prise en compte.","info"); return; }
+      lastCard=full; lastCardAt=Date.now();
+      checkIn("auto",{code:full,two_hours:two.checked});
+      return;
+    }
+    clearTimeout(searchTimer);
+    clearTimeout(idleTimer);
+    idleTimer=setTimeout(clearSearch,60_000);
+    const query=input.value.trim();
+    if(!nameSearchEnabled || !query || isCode(query)) return;
+    if(query.replace(/\s/g,"").length<3) { results.innerHTML=`<p class="borne-hint">Continue à taper… (3 lettres minimum)</p>`; return; }
     searchTimer=setTimeout(async()=>{
       const version=++searchVersion;
-      const query=nameInput.value.trim();
-      if(query.replace(/\s/g,"").length<3){ nameResults.innerHTML=`<p class="borne-hint">Tape au moins 3 lettres.</p>`; return; }
       try {
         const result=await api("/borne/recherche","POST",{q:query});
-        if(version!==searchVersion) return;
-        nameResults.innerHTML=result.rows.length
-          ? result.rows.map(row=>`<button type="button" class="borne-result" role="option" data-ref="${e(row.ref)}"><strong>${e(row.label)}</strong><span>${e(row.class_name)}</span></button>`).join("")
-            +(result.more?`<p class="borne-hint">Plus de résultats : précise ton nom et ton prénom.</p>`:"")
+        if(version!==searchVersion || input.value.trim()!==query) return;
+        rows=result.rows;
+        results.innerHTML=rows.length
+          ? rows.map(row=>`<div class="borne-result" role="listitem">
+              <button type="button" class="borne-result-in" data-ref="${e(row.ref)}" data-direction="entree"><strong>${e(row.label)}</strong><span>${e(row.class_name)}</span><em>${icon("login")} Toucher pour entrer</em></button>
+              <button type="button" class="borne-result-out" data-ref="${e(row.ref)}" data-direction="sortie" aria-label="Sortie de ${e(row.label)}">${icon("logout")}<span>Sortir</span></button></div>`).join("")
+            +(result.more?`<p class="borne-hint">D’autres élèves correspondent : ajoute ton prénom ou ton nom.</p>`:"")
           : `<p class="borne-hint">Aucun élève trouvé. Vérifie l’orthographe ou adresse-toi au personnel.</p>`;
-      } catch(error) { nameResults.innerHTML=`<p class="borne-hint">${e(error.message)}</p>`; }
-    },250);
+      } catch(error) { results.innerHTML=`<p class="borne-hint">${e(error.message)}</p>`; }
+    },220);
   });
-  nameResults.addEventListener("click",event=>{
+  results.addEventListener("click",event=>{
     const choice=event.target.closest("[data-ref]");
-    if(!choice) return;
-    pickedRef=choice.dataset.ref;
-    picked.innerHTML=`${icon("user")}<div><strong>${choice.querySelector("strong").innerHTML}</strong><span>${choice.querySelector("span").innerHTML}</span></div><button type="button" class="borne-link" id="name-change">Changer</button>`;
-    picked.hidden=false;
-    namePanel.hidden=true;
-    $("#name-change").addEventListener("click",()=>{ clearPick(); namePanel.hidden=false; nameInput.focus({preventScroll:true}); });
-    $("#entry-submit").focus({preventScroll:true});
+    if(choice) checkIn(choice.dataset.direction,{ref:choice.dataset.ref,two_hours:two.checked});
   });
   const entry=$("#entry-submit"), buttons=$$("button[type=submit]",form);
   let busy=false, expiry, refreshing=false;
@@ -153,9 +153,13 @@ function kiosk() {
       form.hidden=!settings.activated;
       entry.disabled=busy || !settings.open;
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
-      nameSearchEnabled=Boolean(settings.name_search);
-      if(!nameSearchEnabled && !namePanel.hidden) setNameMode(false);
-      $("#name-open").hidden=!nameSearchEnabled || !namePanel.hidden || !picked.hidden;
+      if(nameSearchEnabled!==Boolean(settings.name_search)) {
+        nameSearchEnabled=Boolean(settings.name_search);
+        $("#entry-label").textContent=nameSearchEnabled?"Ton nom, ton prénom ou ta carte CDI":"Code de ta carte CDI";
+        input.placeholder=nameSearchEnabled?"Ex. Lina ou Martin":"CDI…";
+        $("#borne-help").innerHTML=nameSearchEnabled?"Scanne ta carte ou tape ton nom, puis <b>touche ton nom</b> : tu es enregistré·e automatiquement.":"Scanne ta carte CDI : tu es enregistré·e automatiquement.";
+        syncMode();
+      }
       if($("#second-hour").hidden) two.checked=false;
       const text=!settings.activated ? "Ce poste doit être activé par le personnel du CDI."
         : !settings.open ? settings.reason : settings.message || "";
@@ -177,28 +181,40 @@ function kiosk() {
       $("#kiosk-state").textContent="La borne est momentanément indisponible.";
     } finally {refreshing=false;}
   }
-  form.addEventListener("submit",async event=>{
-    event.preventDefault();
+  async function checkIn(direction,data) {
     if(busy || form.hidden) return;
-    const direction=event.submitter?.value ?? "entree";
     if(direction==="entree" && entry.disabled) return;
-    const byName=!namePanel.hidden || !picked.hidden;
-    if(byName && !pickedRef) { show("Choisis ton nom dans la liste.","error"); return; }
-    const data=byName ? {ref:pickedRef,two_hours:two.checked} : {code:input.value.trim(),two_hours:two.checked};
-    form.reset();
-    if(byName) setNameMode(false);
     busy=true;
     buttons.forEach(button=>button.disabled=true);
+    results.querySelectorAll("button").forEach(button=>button.disabled=true);
     try {
       const result=await api("/borne/"+direction,"POST",data);
-      show(direction==="sortie" ? "Sortie enregistrée. À bientôt !" : (result.already ? "Tu es déjà enregistré·e" : "Bienvenue ! Présence enregistrée")+" jusqu’à "+time(result.expires_at)+".","success");
-    } catch(error) { show(error.message,"error"); }
+      show((result.direction ?? direction)==="sortie" ? "Sortie enregistrée. À bientôt !" : (result.already ? "Tu es déjà enregistré·e" : "Bienvenue ! Présence enregistrée")+" jusqu’à "+time(result.expires_at)+".","success");
+      form.reset();
+      clearSearch();
+    } catch(error) {
+      show(error.message,"error");
+      results.querySelectorAll("button").forEach(button=>button.disabled=false);
+    }
     finally {
       busy=false;
       buttons.forEach(button=>button.disabled=false);
       refresh();
       input.focus({preventScroll:true});
     }
+  }
+  form.addEventListener("submit",event=>{
+    event.preventDefault();
+    const direction=event.submitter?.value ?? "entree";
+    const value=input.value.trim();
+    if(nameSearchEnabled && value && !isCode(value)) {
+      // Touche Entrée dans la recherche : un seul résultat suffit à entrer.
+      if(rows.length===1) checkIn("entree",{ref:rows[0].ref,two_hours:two.checked});
+      else show(rows.length?"Touche ton nom dans la liste.":"Tape ton nom puis touche-le dans la liste.","info");
+      return;
+    }
+    if(!value) return;
+    checkIn(event.submitter ? direction : "auto",{code:value,two_hours:two.checked});
   });
   $("#kiosk-fullscreen").hidden=!document.fullscreenEnabled;
   $("#kiosk-fullscreen").addEventListener("click",async event=>{
@@ -247,8 +263,7 @@ function kioskCamera(show) {
         overlay.remove();
         const input=$("#entry-input");
         input.value=code;
-        show("Carte lue. Choisis Entrée ou Sortie.","success");
-        $("#entry-submit").focus({preventScroll:true});
+        input.dispatchEvent(new Event("input"));
       });
     } catch {
       clearTimeout(timeout);
