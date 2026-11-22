@@ -1,6 +1,6 @@
 services:
   cdi:
-    image: ghcr.io/xeros59/gestion-cdi:${CDI_IMAGE_TAG:-latest}
+    image: ghcr.io/ticeconnect-dev/gestion-cdi:${CDI_IMAGE_TAG:-latest}
     pull_policy: "${CDI_PULL_POLICY:-missing}"
     restart: unless-stopped
     init: true
