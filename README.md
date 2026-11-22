@@ -22,8 +22,8 @@
 
 | Édition | Télécharger | Guide |
 | --- | --- | --- |
-| PHP | [TiceCDI-PHP.zip](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/TiceCDI-PHP.zip) | [PHP et XAMPP](docs/INSTALLATION-PHP.md) |
-| Docker et Portainer | [Stack Portainer](compose.portainer.yaml) · [Image à importer](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) | [Docker et Portainer](docs/INSTALLATION-PORTAINER.md) |
+| PHP | [TiceCDI-PHP.zip](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-PHP.zip) | [PHP et XAMPP](docs/INSTALLATION-PHP.md) |
+| Docker et Portainer | [Stack Portainer](compose.portainer.yaml) · [Image à importer](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) | [Docker et Portainer](docs/INSTALLATION-PORTAINER.md) |
 | Docker depuis les sources | `docker compose up -d --build` après avoir copié `.env.example` en `.env` | [Variables et mise à jour](docs/INSTALLATION-PORTAINER.md) |
 
 L’image Linux amd64 utilise l’adresse historique `ghcr.io/xeros59/gestion-cdi`. Les nouveautés de chaque version sont listées dans le [journal des versions](CHANGELOG.md). Une arrivée à **8 h 30** expire à **9 h**. Avec un créneau supplémentaire, elle expire à **10 h**. Une échéance expirée libère la place et reste distincte d’une sortie constatée.

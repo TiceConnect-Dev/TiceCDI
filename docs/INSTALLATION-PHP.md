@@ -10,7 +10,7 @@ Cette édition utilise PHP sur le serveur, SQLite pour les données et la même 
 
 ## Télécharger et déposer les fichiers
 
-1. Télécharge [TiceCDI-PHP.zip](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/TiceCDI-PHP.zip) sur la page [Releases de GitHub](https://github.com/Xeros59/Gestion-CDI/releases).
+1. Télécharge [TiceCDI-PHP.zip](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-PHP.zip) sur la page [Releases de GitHub](https://github.com/Xeros59/TiceCDI/releases).
 2. Décompresse l’archive et dépose le dossier `Gestion-CDI-PHP` dans le répertoire web de l’hébergement. Lors d’une mise à jour, conserve exactement le dossier et l’URL de l’installation existante.
 3. Crée un dossier privé hors de la racine web. Copie `config.example.php` en `config.local.php`, puis remplis `CDI_DATA_DIR` avec le chemin absolu du dossier privé. Les mêmes paramètres peuvent être fournis comme variables d’environnement.
 
@@ -32,7 +32,7 @@ Si la configuration est laissée par défaut et que PHP dispose des droits, l’
 1. Ouvre `index.php?route=/gestion` dans le dossier installé.
 2. Lis le fichier `installation.key` dans le dossier privé configuré avec ton gestionnaire de fichiers ou en SSH.
 3. Saisis la clé puis crée ton compte administrateur avec un mot de passe de 12 caractères minimum.
-4. Renseigne **Établissement et données personnelles**, programme la purge, puis teste la borne. Importe les élèves une fois ces réglages validés. Les étapes d’utilisation sont détaillées dans le [manuel du CDI](https://github.com/Xeros59/Gestion-CDI/blob/main/MANUEL.md).
+4. Renseigne **Établissement et données personnelles**, programme la purge, puis teste la borne. Importe les élèves une fois ces réglages validés. Les étapes d’utilisation sont détaillées dans le [manuel du CDI](https://github.com/Xeros59/TiceCDI/blob/main/MANUEL.md).
 
 | Page | Adresse à ajouter au dossier d’installation |
 | --- | --- |

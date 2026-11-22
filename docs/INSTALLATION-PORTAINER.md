@@ -38,7 +38,7 @@ Ne publie pas le port 8080 directement sur Internet : laisse `CDI_BIND_IP=127.0.
 
 ## Importer l’image depuis un fichier
 
-1. Télécharge [TiceCDI-Docker-amd64.tar.gz](https://github.com/Xeros59/Gestion-CDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) depuis la release GitHub.
+1. Télécharge [TiceCDI-Docker-amd64.tar.gz](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) depuis la release GitHub.
 2. Dans Portainer, ouvre **Images → Import**, sélectionne le fichier et clique sur **Upload**. En SSH sur l’hôte Docker, la commande équivalente est `docker load -i TiceCDI-Docker-amd64.tar.gz`.
 3. Déploie la même stack avec `CDI_PULL_POLICY=never`. Portainer utilisera le tag importé sur l’hôte.
 
