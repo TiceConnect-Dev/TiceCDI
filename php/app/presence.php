@@ -97,7 +97,7 @@ function presenceResource(Store $db, string $method, ?string $id, array $me, int
 
 function exclusionsResource(Store $db, string $method, ?string $id, array $me, int $clock): array
 {
-    need($me, 'exclusions');
+    need($me, ...($method === 'GET' && $id === null ? ['exclusions', 'exclusions_voir'] : ['exclusions']));
     $today = parisClock($clock)['day'];
     if ($method === 'GET' && $id === null) {
         $rows = $db->all('SELECT e.*,s.first_name,s.last_name,c.name AS class_name FROM exclusions e

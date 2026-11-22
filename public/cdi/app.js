@@ -370,31 +370,52 @@ function login(status) {
   });
 }
 
-const rightNames = {
-  presence:"Consulter les présences", sorties:"Enregistrer les sorties", exclusions:"Gérer les exclusions", eleves:"Gérer les élèves",
-  classes:"Gérer les classes", import:"Importer les élèves", badges:"Imprimer les codes-barres", comptes:"Gérer les comptes",
-  arrivees:"Pointer une classe ou un groupe", planning:"Gérer le planning", statistiques:"Consulter les statistiques", groupes:"Gérer les groupes hors classe",
-  borne:"Activer un poste de pointage", export:"Exporter les données", restaurer:"Restaurer une sauvegarde", donnees:"Traiter les dossiers individuels",
-};
+// Droits par rubrique : [libellé, droit « consulter », droit « gérer », précision].
+const rightAreas = [
+  ["Présences", "presence", "sorties", "Gérer : prolonger et enregistrer les sorties"],
+  ["Planning du CDI", "planning_voir", "planning", "Gérer : créer, déplacer et supprimer des créneaux"],
+  ["Fiches d’appel", "seances_voir", "arrivees", "Gérer : faire l’appel et pointer une classe ou un groupe"],
+  ["Exclusions", "exclusions_voir", "exclusions", "Gérer : exclure un élève et lever une exclusion"],
+  ["Élèves", "eleves_voir", "eleves", "Gérer : ajouter, modifier et retirer des fiches"],
+  ["Classes", "classes_voir", "classes", "Gérer : créer, renommer et supprimer des classes"],
+  ["Groupes hors classe", "groupes_voir", "groupes", "Gérer : composer et archiver des groupes"],
+  ["Réglages et horaires de la borne", "reglages_voir", "reglages", "Gérer : ouverture, capacité, message et horaires"],
+  ["Statistiques", "statistiques", null, ""],
+  ["Journal des modifications", "journal", null, ""],
+];
+const rightActions = [
+  ["import", "Importer des élèves"], ["badges", "Imprimer les codes-barres"], ["borne", "Activer des postes de borne"],
+  ["export", "Exporter (PDF, CSV, sauvegardes)"], ["restaurer", "Restaurer une sauvegarde"], ["donnees", "Traiter les dossiers individuels"],
+  ["comptes", "Gérer les comptes"],
+];
+const rightNames = Object.fromEntries([
+  ...rightAreas.flatMap(([label, view, manage]) => [[view, label + (manage ? " (consulter)" : "")], ...(manage ? [[manage, label + " (gérer)"]] : [])]),
+  ...rightActions,
+]);
+// Résumé lisible : une rubrique gérée n’affiche pas aussi « consulter ».
+function rightsSummary(rights) {
+  const areas = rightAreas.map(([label, view, manage]) => rights.includes(manage) ? label + " · gérer" : rights.includes(view) ? label + (manage ? " · consulter" : "") : "").filter(Boolean);
+  return [...areas, ...rightActions.filter(([key]) => rights.includes(key)).map(([, label]) => label)].join(", ");
+}
 // Menu de gestion : [clé, titre de la page, icône, droits, groupe, libellé court du menu].
 const tabs = [
   ["presences", "Présences", "users", ["presence", "sorties", "arrivees"], "jour"],
-  ["planning", "Planning du CDI", "calendar", ["planning"], "jour", "Planning"],
-  ["seances", "Fiches d’appel", "check", ["arrivees"], "jour"],
-  ["exclusions", "Exclusions", "ban", ["exclusions"], "jour"],
+  ["planning", "Planning du CDI", "calendar", ["planning","planning_voir"], "jour", "Planning"],
+  ["seances", "Fiches d’appel", "check", ["arrivees","seances_voir"], "jour"],
+  ["exclusions", "Exclusions", "ban", ["exclusions","exclusions_voir"], "jour"],
   ["statistiques", "Statistiques", "chart", ["statistiques"], "jour"],
-  ["eleves", "Élèves", "user", ["eleves"], "eleves"],
-  ["classes", "Classes", "grid", ["classes"], "eleves"],
-  ["groupes", "Groupes hors classe", "users", ["groupes"], "eleves", "Groupes"],
+  ["eleves", "Élèves", "user", ["eleves","eleves_voir"], "eleves"],
+  ["classes", "Classes", "grid", ["classes","classes_voir"], "eleves"],
+  ["groupes", "Groupes hors classe", "users", ["groupes","groupes_voir"], "eleves", "Groupes"],
   ["import", "Importer des élèves", "upload", ["import"], "eleves", "Importer"],
   ["badges", "Codes-barres", "scan", ["badges"], "eleves"],
   ["dossiers", "Dossiers individuels", "users", ["donnees"], "eleves", "Dossiers"],
   ["borne-poste", "Activation de la borne", "scan", ["borne"], "borne", "Postes de borne"],
-  ["reglages", "Réglages de la borne", "settings", ["admin"], "borne", "Réglages et horaires"],
+  ["reglages", "Réglages de la borne", "settings", ["reglages","reglages_voir"], "borne", "Réglages et horaires"],
   ["comptes", "Comptes et droits", "lock", ["comptes"], "admin", "Comptes"],
   ["connexion", "Connexion et sécurité", "shield", ["admin"], "admin", "Connexion"],
   ["annees", "Années scolaires", "calendar", ["admin"], "admin"],
-  ["journal", "Journal des modifications", "chart", ["admin"], "admin", "Journal"],
+  ["journal", "Journal des modifications", "chart", ["journal"], "admin", "Journal"],
   ["sauvegarde", "Sauvegarde et restauration", "download", ["export","restaurer"], "admin", "Sauvegardes"],
   ["confidentialite", "Établissement et données personnelles", "info", ["admin"], "admin", "Données personnelles"],
   ["securite", "Sécurité du compte", "shield", ["self"], "compte", "Sécurité du compte"],
@@ -414,7 +435,7 @@ const identity = (row) => `<strong>${fullName(row)}</strong>`;
 const filter = (kind = "all") => `<form class="filter-form" id="filters" role="search">
     ${kind === "all" ? `<label class="with-icon">${icon("search")}<input class="input" type="search" name="q" aria-label="Rechercher un élève" placeholder="Rechercher un élève" value="${e(activeFilters.q)}"></label>` : ""}
     <label><select class="input" name="class" aria-label="Filtrer par classe"><option value="">Toutes les classes</option>${classOptions()}</select></label>
-    ${view === "eleves" ? `<label class="check-line"><input type="checkbox" name="archived" ${activeFilters.archived ? "checked" : ""}> Fiches retirées</label>` : ""}</form>`;
+    ${view === "eleves" && can("eleves") ? `<label class="check-line"><input type="checkbox" name="archived" ${activeFilters.archived ? "checked" : ""}> Fiches retirées</label>` : ""}</form>`;
 function toast(message, tone = "success") {
   const target = $("#toast");
   clearTimeout(toastTimer);
@@ -473,6 +494,14 @@ function menu(visible) {
       <div class="side-items" id="menu-${group}">${items.map(link).join("")}</div></div>`;
   }).join("");
 }
+// Consultation seule : boutons d’édition retirés, champs désactivés, mention « Consultation » dans l’en-tête.
+function readOnlyPill() { return `<span class="pill read-only-pill">${icon("info")} Consultation seule</span>`; }
+function lockPage(target, remove, disable = "") {
+  target.querySelectorAll(remove).forEach((node) => node.remove());
+  if (disable) target.querySelectorAll(disable).forEach((node) => { node.disabled = true; });
+  const actions = target.querySelector(".head-actions");
+  if (actions && !actions.querySelector(".read-only-pill")) actions.insertAdjacentHTML("afterbegin", readOnlyPill());
+}
 function pageError(error) {
   if (error.status === 401) location.assign(urlFor("/connexion?expire=1"));
   else $("#main").innerHTML = `<div class="panel panel-body">${notice(error.message, "error")}</div>`;
@@ -490,26 +519,28 @@ async function render() {
     await fetchPresence();
     refreshTimer = setInterval(refreshPresence, 10_000);
   } else if (view === "eleves") {
-    $("#main").innerHTML = section("Élèves", "Consultez les fiches élèves et modifiez leur affectation.", button("Ajouter un élève", "plus", 'data-action="student-new"', "primary"))
+    $("#main").innerHTML = section("Élèves", "Consultez les fiches élèves et modifiez leur affectation.", can("eleves") ? button("Ajouter un élève", "plus", 'data-action="student-new"', "primary") : readOnlyPill())
       + '<section class="panel table-panel"><div class="table-top"><h2>Annuaire des élèves</h2>' + filter() + '</div><div id="roster"></div></section>';
     bindFilters(fetchStudents);
     await fetchStudents();
   } else if (view === "classes") {
-    $("#main").innerHTML = section("Classes", "Créez les classes et retrouvez les effectifs associés.", button("Créer une classe", "plus", 'data-action="class-new"', "primary"))
+    $("#main").innerHTML = section("Classes", "Créez les classes et retrouvez les effectifs associés.", can("classes") ? button("Créer une classe", "plus", 'data-action="class-new"', "primary") : readOnlyPill())
       + `<section class="panel table-panel"><div class="table-top"><h2>Classes enregistrées</h2>${pill(classes.length + " classe" + (classes.length !== 1 ? "s" : ""))}</div>`
-      + (classes.length ? table(["Classe", "Élèves", "Actions"], classes.map((row) =>
-          `<tr><td><strong>${e(row.name)}</strong></td><td>${row.total}</td><td><div class="button-row">${rowAction("Modifier","edit","class-edit",row.id)}${rowAction("Supprimer","trash","class-delete",row.id,"danger tiny")}</div></td></tr>`))
+      + (classes.length ? table(["Classe", "Élèves", ...(can("classes") ? ["Actions"] : [])], classes.map((row) =>
+          `<tr><td><strong>${e(row.name)}</strong></td><td>${row.total}</td>${can("classes") ? `<td><div class="button-row">${rowAction("Modifier","edit","class-edit",row.id)}${rowAction("Supprimer","trash","class-delete",row.id,"danger tiny")}</div></td>` : ""}</tr>`))
         : empty("Aucune classe", "Créez une classe ou importez un fichier élèves.", "grid")) + "</section>";
   } else if (view === "import") {
     renderImport();
   } else if (view === "planning") {
     const noticeSettings=await api("/notice");
-    await renderPlanning($("#main"),{section,dialogForm,confirmDialog,toast,showScreenLink:noticeSettings.public_planning, canExport:can("export"),
+    await renderPlanning($("#main"),{section,dialogForm,confirmDialog,toast,showScreenLink:noticeSettings.public_planning, canExport:can("export"), readOnly:!can("planning"),
       openClassArrival:can("arrivees") ? (classes,options)=>startCall(classes,dialogForm,options) : null});
   } else if (view === "seances") {
     await renderSessions($("#main"),{section,dialogForm,toast,canExport:can("export")});
+    if (!can("arrivees")) lockPage($("#main"), "#new-call,#keep-at-cdi,#finish-call", ".call-status");
   } else if (view === "groupes") {
     await renderGroups($("#main"),{section,dialogForm,toast});
+    if (!can("groupes")) lockPage($("#main"), "#new-group,[data-group]");
   } else if (view === "securite") {
     await renderSecurity($("#main"),{section,toast,me});
   } else if (view === "connexion") {
@@ -531,6 +562,7 @@ async function render() {
   } else if (view === "reglages") {
     await renderKioskSettings();
     await openingForm($("#main"),toast);
+    if (!can("reglages")) lockPage($("#main"), "form [type=submit],[data-hours],.opening-form button", "form input,form select,form textarea");
   } else if (view === "badges") {
     $("#main").innerHTML = section("Codes-barres", "Imprimez les cartes CDI à distribuer aux élèves.", button("Imprimer la planche", "print", 'data-action="print" disabled', "primary"))
       + `<section class="panel badge-panel"><div class="table-top"><h2>Planche de cartes CDI</h2>${filter("class")}</div><p class="hint">Format A4 · 3 cartes par ligne à l’impression</p><div id="roster"></div></section>`;
@@ -540,11 +572,11 @@ async function render() {
     const list = await gestion("exclusions");
     records = list.rows;
     const active = (row) => !row.revoked_at && row.until_day >= list.today;
-    $("#main").innerHTML = section("Exclusions", "Consultez les motifs et les dates de fin. Une exclusion active empêche le pointage à la borne.", button("Ajouter une exclusion", "plus", 'data-action="exclude-new"', "primary"))
+    $("#main").innerHTML = section("Exclusions", "Consultez les motifs et les dates de fin. Une exclusion active empêche le pointage à la borne.", can("exclusions") ? button("Ajouter une exclusion", "plus", 'data-action="exclude-new"', "primary") : readOnlyPill())
       + `<section class="panel table-panel"><div class="table-top"><h2>Registre des exclusions</h2>${pill(records.filter(active).length + " en cours")}</div>`
       + (records.length ? table(["Élève", "Motif", "Jusqu’au", "État", "Actions"], records.map((row) =>
         `<tr><td>${identity(row)}<small>${e(row.class_name)}</small></td><td class="multiline">${e(row.reason)}<small>Par ${e(row.author)} · ${day(row.created_at)}</small></td><td>${day(row.until_day)}</td>
-        <td>${active(row) ? pill("En cours","red") : pill(row.revoked_at ? "Levée" : "Terminée","gray")}</td><td>${active(row) ? rowAction("Lever","check","exclude-lift",row.id) : "—"}</td></tr>`))
+        <td>${active(row) ? pill("En cours","red") : pill(row.revoked_at ? "Levée" : "Terminée","gray")}</td><td>${active(row) && can("exclusions") ? rowAction("Lever","check","exclude-lift",row.id) : "—"}</td></tr>`))
         : empty("Aucune exclusion enregistrée", "Les exclusions du CDI apparaîtront ici.", "ban")) + "</section>";
   } else if (view === "comptes") {
     records = (await gestion("comptes")).rows;
@@ -553,7 +585,7 @@ async function render() {
       + table(["Compte", "Accès", "Double authentification", "Actions"], records.map((row) => {
         const editable = me.admin || (!row.admin && row.id !== me.id && row.rights.every(can));
         return `<tr><td><strong>${e(row.name)}</strong><small>${e(row.username)}${row.id === me.id ? " · Votre compte" : ""}</small></td>
-          <td class="multiline">${row.admin ? pill("Administrateur") : e(row.rights.map((right) => rightNames[right]).join(", "))}</td>
+          <td class="multiline">${row.admin ? pill("Administrateur") : e(rightsSummary(row.rights))}</td>
           <td>${row.mfa ? pill("Activée","green") : pill("Non","gray")}</td>
           <td>${editable ? `<div class="button-row">${rowAction("Modifier","edit","account-edit",row.id)}${me.admin && row.mfa && row.id !== me.id ? rowAction("Réinitialiser la 2FA","refresh","account-mfa-reset",row.id) : ""}${row.id !== me.id ? rowAction("Supprimer","trash","account-delete",row.id,"danger tiny") : ""}</div>` : "—"}</td></tr>`;
       })) + "</section>";
@@ -617,9 +649,10 @@ async function fetchStudents() {
   if (version !== rosterVersion) return;
   records = result.rows;
   // Les codes CDI ne sont pas renvoyés par l’annuaire : ils restent réservés à la planche des codes-barres.
-  $("#roster").innerHTML = records.length ? table(["Élève","Classe","Actions"], records.map((row) =>
+  const editable = can("eleves");
+  $("#roster").innerHTML = records.length ? table(["Élève","Classe",...(editable ? ["Actions"] : [])], records.map((row) =>
     `<tr><td>${identity(row)}</td><td>${pill(row.class_name,"gray")}</td>
-    <td><div class="button-row">${rowAction("Modifier","edit","student-edit",row.id)}${activeFilters.archived ? rowAction("Réactiver","check","student-restore",row.id) : rowAction("Retirer","trash","student-delete",row.id,"danger tiny")}</div></td></tr>`))
+    ${editable ? `<td><div class="button-row">${rowAction("Modifier","edit","student-edit",row.id)}${activeFilters.archived ? rowAction("Réactiver","check","student-restore",row.id) : rowAction("Retirer","trash","student-delete",row.id,"danger tiny")}</div></td>` : ""}</tr>`))
     : empty("Aucun élève trouvé","Ajoutez un élève ou modifiez les filtres.", "user");
 }
 async function fetchBadges() {
@@ -756,6 +789,7 @@ function renderImport() {
 
 function dialogForm(title, fields, submitText, save, options = {}) {
   const dialog = $("#dialog");
+  dialog.classList.remove("dialog-wide");
   dialog.innerHTML = `<div class="dialog-inner"><div class="dialog-header"><h2 id="dialog-title">${e(title)}</h2>
     <button class="dialog-close" type="button" data-close aria-label="Fermer">${icon("close")}</button></div>
     <form class="stack">${fields}<div id="dialog-error" role="alert" hidden></div>
@@ -842,26 +876,40 @@ function exclusionDialog(known) {
 }
 function accountDialog(row) {
   const own = row?.id === me.id;
-  const directRights = Object.keys(rightNames).filter(can);
+  const has = (right) => Boolean(row?.rights.includes(right));
   const profiles = {
-    vie:["presence"],
-    cdi:["presence","sorties","exclusions","eleves","borne"],
+    vie:["presence","planning_voir","exclusions_voir","eleves_voir"],
+    enseignant:["planning_voir","seances_voir"],
+    direction:["presence","planning_voir","seances_voir","exclusions_voir","eleves_voir","classes_voir","groupes_voir","reglages_voir","statistiques","journal"],
+    cdi:["sorties","planning","arrivees","exclusions","eleves","classes","groupes","statistiques","import","badges","borne","export"],
   };
+  // Un agent non administrateur ne peut accorder que les droits qu’il possède lui-même.
+  const option = (area, level, key) => `<label class="right-level${key && !can(key) ? " locked" : ""}"><input type="radio" name="area-${area}" value="${key ?? ""}" ${key && !can(key) ? "disabled" : ""}
+    ${(key ? has(key) && (level !== "view" || !has(rightAreas[area][2])) : !has(rightAreas[area][1]) && !has(rightAreas[area][2])) ? "checked" : ""}><span>${level === "none" ? "Aucun" : level === "view" ? "Consulter" : "Gérer"}</span></label>`;
   dialogForm(row ? "Modifier le compte" : "Créer un compte", `
-    <label class="field"><span>Nom d’affichage</span><input name="name" value="${e(row?.name)}" maxlength="100" required></label>
-    <label class="field"><span>Identifiant</span><input name="username" value="${e(row?.username)}" autocomplete="off" minlength="3" maxlength="80" required></label>
+    <div class="form-grid">
+      <label class="field"><span>Nom d’affichage</span><input name="name" value="${e(row?.name)}" maxlength="100" required></label>
+      <label class="field"><span>Identifiant</span><input name="username" value="${e(row?.username)}" autocomplete="off" minlength="3" maxlength="80" required></label>
+    </div>
     <label class="field"><span>${row ? "Nouveau mot de passe (facultatif)" : "Mot de passe"}</span><input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="160" ${row ? "" : "required"}><small>12 caractères au minimum.</small></label>
     ${me.admin ? `<label class="check-line"><input type="checkbox" name="admin" ${row?.admin ? "checked" : ""} ${own ? "disabled" : ""}> Administrateur · tous les accès</label>` : ""}
-    <div id="custom-rights">
-      <label class="field"><span>Préréglage</span><select name="profile"><option value="">Droits personnalisés</option><option value="vie">Vie scolaire · consultation</option><option value="cdi">Équipe CDI · présences et élèves</option></select></label>
-      <fieldset><legend>Droits détaillés</legend><div class="permission-grid">${directRights.map((right) =>
-        `<label class="check-line"><input type="checkbox" name="rights" value="${right}" ${row?.rights.includes(right) ? "checked" : ""}> ${rightNames[right]}</label>`).join("")}</div></fieldset>
+    <div id="custom-rights" class="stack">
+      <label class="field"><span>Modèle</span><select name="profile"><option value="">Droits personnalisés</option>
+        <option value="vie">Vie scolaire · consultation</option><option value="enseignant">Enseignant · planning et fiches d’appel</option>
+        <option value="direction">Direction · consultation complète</option><option value="cdi">Équipe CDI · gestion courante</option></select>
+        <small>Un modèle remplit le tableau ; chaque ligne reste modifiable.</small></label>
+      <div class="rights-matrix" role="group" aria-label="Droits par rubrique">
+        <div class="rights-head"><span>Rubrique</span><span>Aucun</span><span>Consulter</span><span>Gérer</span></div>
+        ${rightAreas.map(([label, view, manage, hint], area) => `<div class="rights-row"><div><strong>${e(label)}</strong>${hint ? `<small>${e(hint)}</small>` : ""}</div>
+          ${option(area, "none", null)}${option(area, "view", view)}${manage ? option(area, "manage", manage) : `<span class="right-level empty">—</span>`}</div>`).join("")}
+      </div>
+      <fieldset><legend>Actions complémentaires</legend><div class="permission-grid">${rightActions.map(([key, label]) =>
+        `<label class="check-line${can(key) ? "" : " locked"}"><input type="checkbox" name="rights" value="${key}" ${has(key) ? "checked" : ""} ${can(key) ? "" : "disabled"}> ${e(label)}</label>`).join("")}</div></fieldset>
     </div>`, row ? "Enregistrer" : "Créer le compte", (form) => {
       const fields = new FormData(form);
-      const data = Object.fromEntries(fields);
+      const data = { name:fields.get("name"), username:fields.get("username"), password:fields.get("password") };
       data.admin = Boolean(form.elements.admin?.checked);
-      data.rights = fields.getAll("rights");
-      delete data.profile;
+      data.rights = [...rightAreas.map((_, area) => fields.get("area-" + area)).filter(Boolean), ...fields.getAll("rights")];
       return gestion("comptes" + (row ? "/" + row.id : ""), row ? "PATCH" : "POST", data);
     }, {
       success:row ? "Compte mis à jour." : "Compte créé.", refresh:async () => {
@@ -871,15 +919,22 @@ function accountDialog(row) {
         } else await render();
       },
       ready(form) {
+        form.closest(".dialog")?.classList.add("dialog-wide");
         const custom = $("#custom-rights", form);
         const profile = form.elements.profile;
         const sync = () => { custom.hidden = Boolean(form.elements.admin?.checked); };
         form.elements.admin?.addEventListener("change", sync);
         profile.addEventListener("change", () => {
-          if (!profiles[profile.value]) return;
-          for (const input of $$('input[name="rights"]', form)) input.checked = profiles[profile.value].includes(input.value);
+          const chosen = profiles[profile.value];
+          if (!chosen) return;
+          rightAreas.forEach(([, view, manage], area) => {
+            const value = manage && chosen.includes(manage) ? manage : chosen.includes(view) ? view : "";
+            const input = form.querySelector(`input[name="area-${area}"][value="${value}"]`);
+            if (input && !input.disabled) input.checked = true;
+          });
+          for (const input of $$('input[name="rights"]', form)) if (!input.disabled) input.checked = chosen.includes(input.value);
         });
-        for (const input of $$('input[name="rights"]', form)) input.addEventListener("change", () => { profile.value = ""; });
+        for (const input of $$('input[type=radio], input[name="rights"]', form)) input.addEventListener("change", () => { profile.value = ""; });
         sync();
       },
     });

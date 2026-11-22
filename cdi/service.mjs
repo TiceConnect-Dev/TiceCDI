@@ -11,7 +11,8 @@ import { archiveRows, rollover, years } from "./school-year.mjs";
 import { changeSlot, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeHours, openingHours, parisClock, presenceDeadline, saveOpeningHours, shiftDay, validDay, weekday, weekPlanning } from "./calendar.mjs";
 import { classRoster, groupArrival } from "./operations.mjs";
 
-export const RIGHTS = ["presence", "sorties", "exclusions", "eleves", "classes", "import", "badges", "comptes", "arrivees", "planning", "statistiques", "groupes", "borne", "export", "restaurer", "donnees"];
+// Droits : « gérer » (clé simple) ou « consulter » (suffixe _voir) par rubrique, plus des actions ponctuelles.
+export const RIGHTS = ["presence", "sorties", "exclusions", "exclusions_voir", "eleves", "eleves_voir", "classes", "classes_voir", "import", "badges", "comptes", "arrivees", "seances_voir", "planning", "planning_voir", "statistiques", "groupes", "groupes_voir", "borne", "reglages", "reglages_voir", "journal", "export", "restaurer", "donnees"];
 const encoder = new TextEncoder();
 const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" });
 const personColumns = "s.id,s.first_name,s.last_name,c.name AS class_name,s.class_id";
@@ -551,9 +552,9 @@ async function dispatch(request, env, options) {
   if (path==="/api/gestion/export" && method==="POST") {
     need("export");
     const {type}=await payload(request);
-    const permissions={planning:"planning",appel:"arrivees",statistiques:"statistiques",badges:"badges",archives:"admin"};
+    const permissions={planning:["planning","planning_voir"],appel:["arrivees","seances_voir"],statistiques:["statistiques"],badges:["badges"],archives:["admin"]};
     if (!Object.hasOwn(permissions,type)) fail(400,"Export inconnu.");
-    if (type==="archives" ? !me.admin : !me.rights.includes(permissions[type])) fail(403,"Votre compte ne dispose pas de cet accès.");
+    if (type==="archives" ? !me.admin : !permissions[type].some(right=>me.rights.includes(right))) fail(403,"Votre compte ne dispose pas de cet accès.");
     await m.batch([audit(m,me,"confidentialite","Export",type,null,null)]);
     return json({ok:true});
   }
@@ -562,7 +563,7 @@ async function dispatch(request, env, options) {
   const itemId = match?.[2];
 
   if (path === "/api/gestion/reglages" && ["GET", "PATCH"].includes(method)) {
-    if (!me.admin) fail(403, "Seul un administrateur peut modifier les réglages de la borne.");
+    need(...(method === "GET" ? ["reglages", "reglages_voir"] : ["reglages"]));
     if (method === "GET") return json(await kioskSettings(m));
     const data = await payload(request);
     if (typeof data.open !== "boolean" || typeof data.second_hour !== "boolean" || typeof data.message !== "string") fail(400, "Les réglages de la borne sont incomplets.");
@@ -584,7 +585,7 @@ async function dispatch(request, env, options) {
   }
 
   if (path === "/api/gestion/horaires" && ["GET","PATCH"].includes(method)) {
-    if (!me.admin) fail(403,"Seul un administrateur peut modifier les horaires d’ouverture.");
+    need(...(method === "GET" ? ["reglages", "reglages_voir"] : ["reglages"]));
     if (method === "GET") return json(await openingHours(m));
     const {use_hours,hours} = await payload(request);
     if (typeof use_hours!=="boolean") fail(400,"Sélectionnez l’état des horaires automatiques.");
@@ -604,7 +605,7 @@ async function dispatch(request, env, options) {
     return json(await privateStatistics(m,url.searchParams.get("from"),url.searchParams.get("to"),clock,fail));
   }
   if (path === "/api/gestion/planning" && method === "GET") {
-    need("planning");
+    need("planning","planning_voir");
     const start = url.searchParams.get("week");
     if (!validDay(start) || weekday(start)!==1) fail(400,"Sélectionnez un lundi.");
     return json(await weekPlanning(m,start,true));
@@ -630,12 +631,12 @@ async function dispatch(request, env, options) {
 
   const groupItem=path.match(/^\/api\/gestion\/groupes\/([a-f0-9-]+)$/)?.[1];
   if (path==="/api/gestion/groupes" && method==="GET") {
-    need("groupes","arrivees","planning");
+    need("groupes","groupes_voir","arrivees","planning","planning_voir");
     const rows=await groups(m);
-    return json({ rows:me.rights.includes("groupes")?rows:rows.filter(row=>row.active) });
+    return json({ rows:me.rights.includes("groupes")||me.rights.includes("groupes_voir")?rows:rows.filter(row=>row.active) });
   }
   if ((path==="/api/gestion/groupes" && method==="POST") || (groupItem && ["GET","PATCH"].includes(method))) {
-    need("groupes");
+    need(...(method==="GET" ? ["groupes","groupes_voir"] : ["groupes"]));
     if (method==="GET") return json({rows:await members(m,groupItem,fail)});
     return json(await changeGroup(m,me,groupItem,await payload(request),fail,label,normalize));
   }
@@ -644,13 +645,13 @@ async function dispatch(request, env, options) {
     return json(await roster(m,url.searchParams.get("kind"),url.searchParams.get("id"),fail));
   }
   if (path==="/api/gestion/seances" && ["GET","POST"].includes(method)) {
-    need("arrivees");
+    need(...(method==="GET" ? ["arrivees","seances_voir"] : ["arrivees"]));
     if (method==="GET") return json({rows:await sessionsList(m,clock)});
     return json(await startSession(m,me,await payload(request),clock,fail,label));
   }
   const attendanceRoute=path.match(/^\/api\/gestion\/seances\/([a-f0-9-]+)(\/fin)?$/);
   if (attendanceRoute) {
-    need("arrivees");
+    need(...(method==="GET" ? ["arrivees","seances_voir"] : ["arrivees"]));
     const [,id,finish]=attendanceRoute;
     if (finish && method==="POST") return json(await finishSession(m,me,id,await payload(request),clock,fail));
     if (!finish && method==="GET") return json(await sessionDetail(m,id,clock,fail));
@@ -711,7 +712,7 @@ async function dispatch(request, env, options) {
     return json(summary);
   }
   if (path==="/api/gestion/journal" && method==="GET") {
-    if (!me.admin) fail(403,"Le journal est réservé aux administrateurs.");
+    need("journal");
     const area=url.searchParams.get("area")??"";
     const before=Number(url.searchParams.get("before")??(clock+1));
     if (!Number.isSafeInteger(before) || before<0 || before>clock+1000) fail(400,"Page de journal invalide.");
@@ -765,7 +766,7 @@ async function dispatch(request, env, options) {
   }
   if (resource === "classes") {
     if (method === "GET" && !itemId) {
-      need("classes", "eleves", "badges", "import", "presence", "sorties", "arrivees", "planning","donnees");
+      need("classes", "classes_voir", "eleves", "eleves_voir", "badges", "import", "presence", "sorties", "arrivees", "seances_voir", "planning", "planning_voir", "groupes", "groupes_voir", "exclusions", "exclusions_voir", "donnees");
       return json({ rows: await m.list(`SELECT c.id,c.name,(SELECT count(*) FROM students s WHERE s.class_id=c.id AND s.active=1) AS total
         FROM classes c ORDER BY c.normalized`) });
     }
@@ -810,7 +811,7 @@ async function dispatch(request, env, options) {
       const filter=studentSearch ? await payload(request) : Object.fromEntries(url.searchParams);
       const forBadges = filter.badges === "1";
       if (forBadges) need("export");
-      need(...(forBadges ? ["badges"] : ["eleves", "exclusions", "groupes"]));
+      need(...(forBadges ? ["badges"] : ["eleves", "eleves_voir", "exclusions", "groupes"]));
       const classId = clean(filter.class);
       const active = !forBadges && me.rights.includes("eleves") && filter.archived === "1" ? 0 : 1;
       const search = words(studentSearch ? clean(filter.q).slice(0,90) : "").split(" ").filter(Boolean).slice(0, 8);
@@ -834,7 +835,7 @@ async function dispatch(request, env, options) {
     }
   }
   if (resource === "exclusions") {
-    need("exclusions");
+    need(...(method === "GET" && !itemId ? ["exclusions", "exclusions_voir"] : ["exclusions"]));
     if (method === "GET" && !itemId) return json({ rows: await m.list(`SELECT e.*,s.first_name,s.last_name,c.name AS class_name
       FROM exclusions e JOIN students s ON s.id=e.student_id JOIN classes c ON s.class_id=c.id ORDER BY e.created_at DESC LIMIT 500`), today: today() });
     if (method === "POST" && !itemId) {

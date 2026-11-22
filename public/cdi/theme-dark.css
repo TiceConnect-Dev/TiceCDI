@@ -80,6 +80,9 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] .camera-box{background:var(--white,#14151a)}
   html[data-theme="dark"] .camera-view{background:#e8e9ed}
   html[data-theme="dark"] .camera-guide{background:#d61f2a}
+  html[data-theme="dark"] .right-level span{background:var(--white,#14151a)}
+  html[data-theme="dark"] .right-level input:checked+span{background:var(--blue-fill)}
+  html[data-theme="dark"] .right-level input:focus-visible+span{outline:3px solid #788eed}
   html[data-theme="dark"] body{background:var(--canvas)}
   html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}

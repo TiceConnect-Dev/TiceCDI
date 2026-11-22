@@ -150,7 +150,8 @@ function importStudents(Store $db, array $body): array
 function classesResource(Store $db, string $method, ?string $id, array $me): array
 {
     if ($method === 'GET' && $id === null) {
-        need($me, 'classes', 'eleves', 'badges', 'import', 'presence', 'sorties', 'arrivees', 'planning', 'donnees');
+        need($me, 'classes', 'classes_voir', 'eleves', 'eleves_voir', 'badges', 'import', 'presence', 'sorties', 'arrivees', 'seances_voir',
+            'planning', 'planning_voir', 'groupes', 'groupes_voir', 'exclusions', 'exclusions_voir', 'donnees');
         return ['rows' => $db->all('SELECT c.id,c.name,(SELECT count(*) FROM students s
             WHERE s.class_id=c.id AND s.active=1) AS total FROM classes c ORDER BY c.normalized')];
     }
@@ -222,7 +223,7 @@ function studentsResource(Store $db, string $method, ?string $id, array $me, int
         if ($badges) {
             need($me, 'export');
         }
-        need($me, ...($badges ? ['badges'] : ['eleves', 'exclusions', 'groupes']));
+        need($me, ...($badges ? ['badges'] : ['eleves', 'eleves_voir', 'exclusions', 'groupes']));
         $canEdit = in_array('eleves', $me['rights'], true);
         $active = $badges || !$canEdit || ($filters['archived'] ?? q('archived')) !== '1';
         $class = clean($filters['class'] ?? q('class'));

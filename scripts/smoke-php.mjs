@@ -546,6 +546,36 @@ async function devicesTest(host) {
   db.close();
 }
 
+// Droits fins : « consulter » donne la lecture sans la modification.
+async function viewRightsTest(host) {
+  const pass="Mot de passe consultation 2026";
+  await host.post("/gestion/comptes",{username:"lecture."+host.kind,name:"Consultation",password:pass,admin:false,
+    rights:["planning_voir","seances_voir","eleves_voir","classes_voir","exclusions_voir","groupes_voir","reglages_voir","journal"]});
+  const viewer=await host.login("lecture."+host.kind,pass);
+  const monday=weekMonday();
+  await host.get("/gestion/planning?week="+monday,viewer);
+  await host.post("/gestion/planning",{day:monday,start_min:600,end_min:660,title:"Interdit",kind:"cours"},viewer,403);
+  await host.post("/gestion/planning/copier",{start:monday},viewer,403);
+  await host.get("/gestion/seances",viewer);
+  await host.post("/gestion/seances",{kind:"classe",id:"x"},viewer,403);
+  await host.get("/gestion/eleves",viewer);
+  await host.post("/gestion/eleves",{first_name:"A",last_name:"B",class_id:"x"},viewer,403);
+  await host.get("/gestion/classes",viewer);
+  await host.post("/gestion/classes",{name:"Interdite"},viewer,403);
+  await host.get("/gestion/exclusions",viewer);
+  await host.post("/gestion/exclusions",{student_id:"x",reason:"r",until_day:monday},viewer,403);
+  await host.get("/gestion/groupes",viewer);
+  await host.post("/gestion/groupes",{name:"Interdit",members:[]},viewer,403);
+  await host.get("/gestion/reglages",viewer);
+  await host.get("/gestion/horaires",viewer);
+  await host.patch("/gestion/reglages",{open:true,second_hour:true,message:""},viewer,403);
+  await host.get("/gestion/journal",viewer);
+  await host.get("/gestion/statistiques?from="+monday+"&to="+monday,viewer,403);
+  await host.get("/gestion/comptes",viewer,403);
+  const listed=(await host.get("/gestion/comptes")).rows.find(row=>row.username==="lecture."+host.kind);
+  assert.deepEqual(listed.rights.sort(),["classes_voir","eleves_voir","exclusions_voir","groupes_voir","journal","planning_voir","reglages_voir","seances_voir"]);
+}
+
 // Sécurité : en-têtes communs, méthodes refusées et conversion des anciennes empreintes de mot de passe.
 async function security(host) {
   for(const path of ["/","/api/auth/status","/cdi/cdi.css"]) {
@@ -597,6 +627,7 @@ try {
   await security(node); await security(phpHost);
   await accountSecurity(node); await accountSecurity(phpHost);
   await devicesTest(node); await devicesTest(phpHost);
+  await viewRightsTest(node); await viewRightsTest(phpHost);
   const idp=await identityProvider();
   try { await connectionSettingsTest(node,idp); await connectionSettingsTest(phpHost,idp); } finally { idp.close(); }
   assert.ok((await node.post("/gestion/sauvegarde",{backup:p.old,phrase:secret},n.restore)).token);
@@ -608,7 +639,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, recherche par nom et suppression de classe.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, recherche par nom, suppression de classe et droits de consultation.");
 } catch(error){
   console.error(output);
   throw error;

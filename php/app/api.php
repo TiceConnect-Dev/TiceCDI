@@ -285,14 +285,14 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     if ($path === '/api/gestion/export' && $method === 'POST') {
         need($me,'export');
         $type = requestData()['type'] ?? '';
-        $rights = ['planning'=>'planning','appel'=>'arrivees','statistiques'=>'statistiques','badges'=>'badges','archives'=>'admin'];
+        $rights = ['planning'=>['planning','planning_voir'],'appel'=>['arrivees','seances_voir'],'statistiques'=>['statistiques'],'badges'=>['badges'],'archives'=>['admin']];
         if (!is_string($type) || !isset($rights[$type])) {
             fail(400,'Export inconnu.');
         }
         if ($type === 'archives') {
             adminOnly($me);
         } else {
-            need($me,$rights[$type]);
+            need($me, ...$rights[$type]);
         }
         audit($db,$me,'confidentialite','Export',$type,null,null);
         return ['ok' => true];
@@ -311,11 +311,11 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         };
     }
     if ($path === '/api/gestion/reglages' && in_array($method, ['GET', 'PATCH'], true)) {
-        adminOnly($me);
+        need($me, ...($method === 'GET' ? ['reglages', 'reglages_voir'] : ['reglages']));
         return $method === 'GET' ? kioskSettings($db) : changeKioskSettings($db, $me, requestData());
     }
     if ($path === '/api/gestion/horaires' && in_array($method, ['GET', 'PATCH'], true)) {
-        adminOnly($me);
+        need($me, ...($method === 'GET' ? ['reglages', 'reglages_voir'] : ['reglages']));
         return $method === 'GET' ? openingHours($db) : changeOpeningHours($db, $me, requestData());
     }
     if ($path === '/api/gestion/arrivees' && in_array($method, ['GET', 'POST'], true)) {
@@ -334,7 +334,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         return privateStatistics($db, q('from'), q('to'), $clock);
     }
     if ($path === '/api/gestion/planning' && in_array($method, ['GET', 'POST'], true)) {
-        need($me, 'planning');
+        need($me, ...($method === 'GET' ? ['planning', 'planning_voir'] : ['planning']));
         return $method === 'GET' ? weekPlanning($db, validateMonday(q('week')), $clock, true)
             : changeSlot($db, $me, null, requestData());
     }
@@ -358,14 +358,14 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     }
     if ($path === '/api/gestion/groupes' && in_array($method, ['GET', 'POST'], true)) {
         if ($method === 'GET') {
-            need($me, 'groupes', 'arrivees', 'planning');
-            return ['rows' => groups($db, in_array('groupes', $me['rights'], true))];
+            need($me, 'groupes', 'groupes_voir', 'arrivees', 'planning', 'planning_voir');
+            return ['rows' => groups($db, (bool) array_intersect(['groupes', 'groupes_voir'], $me['rights']))];
         }
         need($me, 'groupes');
         return saveGroup($db, $me, null, requestData());
     }
     if (in_array($method, ['GET', 'PATCH'], true) && preg_match('~^/api/gestion/groupes/([a-f0-9-]+)$~D', $path, $matches)) {
-        need($me, 'groupes');
+        need($me, ...($method === 'GET' ? ['groupes', 'groupes_voir'] : ['groupes']));
         return $method === 'GET' ? ['rows' => members($db, $matches[1])] : saveGroup($db, $me, $matches[1], requestData());
     }
     if ($path === '/api/gestion/seances/effectif' && $method === 'GET') {
@@ -373,11 +373,11 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         return roster($db, q('kind'), q('id'));
     }
     if ($path === '/api/gestion/seances' && in_array($method, ['GET', 'POST'], true)) {
-        need($me, 'arrivees');
+        need($me, ...($method === 'GET' ? ['arrivees', 'seances_voir'] : ['arrivees']));
         return $method === 'GET' ? ['rows' => sessions($db, $clock)] : startAttendance($db, $me, requestData(), $clock);
     }
     if (preg_match('~^/api/gestion/seances/([a-f0-9-]+)(/fin)?$~D', $path, $matches)) {
-        need($me, 'arrivees');
+        need($me, ...($method === 'GET' ? ['arrivees', 'seances_voir'] : ['arrivees']));
         $id = $matches[1];
         if (isset($matches[2]) && $method === 'POST') {
             return finishAttendance($db, $me, $id, requestData(), $clock);
@@ -395,7 +395,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         return backupResource($db, $me, $path, $method, $clock);
     }
     if ($path === '/api/gestion/journal' && $method === 'GET') {
-        adminOnly($me);
+        need($me, 'journal');
         return journal($db, $clock);
     }
     if ($path === '/api/gestion/annees' && in_array($method, ['GET', 'POST'], true)) {

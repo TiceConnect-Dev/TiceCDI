@@ -1,5 +1,16 @@
 # Journal des versions
 
+## v1.9.0 · Thème clair par défaut et droits de consultation
+
+- Le thème clair s’affiche par défaut ; le thème sombre ne s’active que sur demande (choix mémorisé par navigateur).
+- **Droits plus fins** : chaque rubrique se règle sur Aucun, Consulter ou Gérer (planning, fiches d’appel, exclusions, élèves, classes, groupes, réglages et horaires). Les actions sensibles restent des cases séparées.
+- Nouveaux droits de consultation : `planning_voir`, `seances_voir`, `exclusions_voir`, `eleves_voir`, `classes_voir`, `groupes_voir`, `reglages_voir`, ainsi que `journal` (journal des modifications sans être administrateur).
+- Pages en lecture seule avec le badge « Consultation seule » : boutons de création, de modification et de glisser-déposer masqués ; le serveur refuse toute écriture (Node et PHP).
+- Modèles de compte (vie scolaire, enseignant, direction, personnel du CDI) et résumé lisible des accès dans la liste des comptes.
+- Les réglages et horaires peuvent être délégués à un compte non administrateur (droit « Gérer »).
+
+Les droits existants sont conservés tels quels ; aucune migration n’est nécessaire.
+
 ## v1.8.0 · Pointage par le nom en un geste
 
 - La borne propose directement un champ unique « Ton nom, ton prénom ou ta carte CDI » : plus besoin de cliquer sur « Pas de carte ? ».

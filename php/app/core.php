@@ -1,9 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Droits : « gérer » (clé simple) ou « consulter » (suffixe _voir) par rubrique, plus des actions ponctuelles.
 const RIGHTS = [
-    'presence', 'sorties', 'exclusions', 'eleves', 'classes', 'import', 'badges',
-    'comptes', 'arrivees', 'planning', 'statistiques', 'groupes', 'borne', 'export', 'restaurer', 'donnees',
+    'presence', 'sorties', 'exclusions', 'exclusions_voir', 'eleves', 'eleves_voir', 'classes', 'classes_voir', 'import', 'badges',
+    'comptes', 'arrivees', 'seances_voir', 'planning', 'planning_voir', 'statistiques', 'groupes', 'groupes_voir', 'borne',
+    'reglages', 'reglages_voir', 'journal', 'export', 'restaurer', 'donnees',
 ];
 const HOUR_MS = 3_600_000;
 const MAX_BACKUP_BYTES = 14_000_000;

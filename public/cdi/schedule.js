@@ -77,19 +77,20 @@ function sizeCalendar(target) {
 }
 
 export async function renderPlanning(target, context) {
-  const { section, dialogForm, confirmDialog, toast, openClassArrival, showScreenLink, canExport } = context;
+  const { section, dialogForm, confirmDialog, toast, openClassArrival, showScreenLink, canExport, readOnly } = context;
   const [{rows:classes},{rows:groups}] = await Promise.all([api("/gestion/classes"),api("/gestion/groupes")]);
   const params=new URLSearchParams(location.search);
   let start=params.get("week") || weekStart(today());
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !Number.isFinite(Date.parse(start))) start=weekStart(today());
   else start=weekStart(start);
-  target.innerHTML=section("Planning du CDI","Planifiez les cours et les réservations. Faites glisser un créneau ou ouvrez-le pour le modifier.",
+  target.innerHTML=section("Planning du CDI",readOnly?"Consultez les cours, réservations et fermetures du CDI.":"Planifiez les cours et les réservations. Faites glisser un créneau ou ouvrez-le pour le modifier.",
+      (readOnly?`<span class="pill read-only-pill">${icon("info")} Consultation seule</span>`:"")+
       (showScreenLink?`<a class="btn secondary" href="${urlFor("/planning-ecran")}" target="_blank" rel="noopener">${icon("wide")} Vue écran</a>`:"")+
-      button("Ajouter un créneau","plus",'data-plan="new"',"primary"))
+      (readOnly?"":button("Ajouter un créneau","plus",'data-plan="new"',"primary")))
     + `<section class="panel planning-panel"><div class="planning-toolbar">
       <div class="planning-navigation">${button("Précédente","previous",'data-plan="prev" aria-label="Semaine précédente"')}${dateField(start)}
       ${button("Suivante","chevron",'data-plan="next" aria-label="Semaine suivante"')}${button("Aujourd’hui","calendar",'data-plan="today"')}</div>
-      <div class="head-actions">${button("Copier la semaine","copy",'data-plan="copy"')}${canExport?button("PDF d’une journée","download",'data-plan="day-pdf"')+button("PDF de la semaine","download",'data-plan="pdf"',"primary"):""}</div>
+      <div class="head-actions">${readOnly?"":button("Copier la semaine","copy",'data-plan="copy"')}${canExport?button("PDF d’une journée","download",'data-plan="day-pdf"')+button("PDF de la semaine","download",'data-plan="pdf"',"primary"):""}</div>
     </div><div class="planning-period"><div><h2 id="week-label"></h2><span class="hint" id="week-count"></span></div>
     <label class="check-line"><input type="checkbox" id="hide-weekend"> Masquer le week-end</label></div><div id="calendar-grid" class="planning-grid"></div></section>`;
   const board=$("#calendar-grid",target);
@@ -113,10 +114,10 @@ export async function renderPlanning(target, context) {
     $("#week-label",target).textContent=weekLabel(data,days.at(-1).date);
     const count=data.rows.filter(row=>days.some(day=>day.date===row.day)).length;
     $("#week-count",target).textContent=count+" créneau"+(count>1?"x":"");
-    const grid=calendar(data,{editor:true,hideWeekend:weekend.checked});
+    const grid=calendar(data,{editor:!readOnly,hideWeekend:weekend.checked});
     board.innerHTML=grid.html+accessiblePlanning(data,days,true);
     sizeCalendar(board);
-    bindBoard(grid.first,grid.last);
+    if(!readOnly) bindBoard(grid.first,grid.last);
   }
   function bindBoard(first,last) {
     board.ondragstart=(event)=>{

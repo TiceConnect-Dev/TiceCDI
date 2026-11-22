@@ -59,7 +59,8 @@ const systemDark = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
 function storedTheme() { try { return localStorage.getItem(themeKey); } catch { return null; } }
 export function currentTheme() {
   const stored = storedTheme();
-  return stored === "dark" || stored === "light" ? stored : (systemDark?.matches ? "dark" : "light");
+  // Thème clair par défaut ; le thème sombre s’active seulement sur demande (mémorisé par navigateur).
+  return stored === "dark" ? "dark" : "light";
 }
 const themeControl = (theme) => icon(theme === "dark" ? "sun" : "moon") + `<span class="sr-label">${theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre"}</span>`;
 function applyTheme() {
