@@ -1,5 +1,23 @@
 # Journal des versions
 
+## v1.11.0 · Statistiques détaillées, borne épurée
+
+**Statistiques**
+
+- Plus aucun masquage : toutes les valeurs s’affichent, même sous 5 (détail quotidien, affluence jour × heure).
+- Nouveaux indicateurs : élèves différents, moyenne par jour d’ouverture, heures cumulées, pic de présence simultanée, part des venues avec la classe ou un groupe, sorties avant l’échéance, évolution par rapport à la période précédente, journée la plus chargée, passages par élève.
+- Nouvelles répartitions : fréquentation par classe (élèves venus, effectif, taux de venue, passages par élève), durée de présence, assiduité des élèves, type de venue.
+- Raccourcis « Ce trimestre » et « Année scolaire » ; regroupement par semaine au-delà de deux mois.
+- Rapport PDF sur trois pages (synthèse, affluence, détail) et CSV complet.
+
+**Borne**
+
+- Les boutons Entrée et Sortie ont disparu : la carte bascule seule entre entrée et sortie, et le nom se touche dans la liste (bouton « Sortir » par nom).
+
+**Interface**
+
+- Logo TiceCDI légèrement réduit dans l’en-tête.
+
 ## v1.10.0 · Exports séparés des sauvegardes et droits encore plus fins
 
 - **L’ancien droit « Exporter » est découpé** : chaque rubrique a sa case « Exporter » dans le tableau des droits (PDF du planning, CSV des fiches d’appel, rapport PDF/CSV des statistiques, export d’un dossier individuel). Un compte peut donc exporter le planning en PDF **sans aucun accès aux sauvegardes**.

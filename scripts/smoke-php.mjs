@@ -209,7 +209,15 @@ async function exercise(host) {
   assert.equal((await get("/gestion/dossier/"+id)).visits.at(-1).status,"creneau_expire");
   assert.equal((await get("/gestion/presences",viewer)).rows.length,0);
   const stats="/gestion/statistiques?from="+earlier+"&to="+earlier;
-  assert.equal((await get(stats)).visits,6);
+  const detailed=await get(stats);
+  assert.equal(detailed.visits,6); assert.equal(detailed.students,6); assert.equal(detailed.hidden,false);
+  assert.deepEqual(detailed.classes.map(row=>[row.name,row.visits,row.students,row.size]),[["5e A",6,6,6]]);
+  assert.equal(detailed.durations.find(row=>row.label==="30 min à 1 h").count,6);
+  assert.equal(detailed.frequency[0].count,6);
+  assert.deepEqual(detailed.sources,[{source:"individuel",visits:6}]);
+  assert.equal(detailed.hours.reduce((total,row)=>total+row.visits,0),6); // aucune case masquée
+  assert.equal(detailed.peak,6); assert.equal(detailed.busiest.visits,6); assert.equal(detailed.previous.visits,0);
+  assert.deepEqual(Object.keys(detailed).sort(),["average","busiest","classes","daily","days","durations","early_exits","frequency","from","group_visits","hidden","hours","observed_hours","peak","per_day","previous","retained_from","retained_visits","sources","students","to","visits"]);
   const old=await post("/gestion/sauvegarde/export",{phrase:secret},exporter);
   assert.equal(old.format,"cdi-encrypted");
   assert.equal(Object.hasOwn(old,"tables"),false);

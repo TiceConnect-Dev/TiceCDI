@@ -61,28 +61,71 @@ export async function maintain(m, clock=Date.now()) {
   return m.one("SELECT last_success FROM privacy_state WHERE id=1");
 }
 
-// Répartition jour × heure (heure de Paris) des passages encore conservés ; les cases de moins de 5 passages sont masquées.
-export const hoursSql=`SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits
-  FROM local_visits WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour`;
-export function maskHours(rows) {
-  return rows.map(row=>({weekday:row.weekday===0?7:row.weekday,hour:row.hour,visits:row.visits>=5?row.visits:null}));
-}
-export async function privateStatistics(m,from,to,clock,fail) {
-  if (!validDay(from) || !validDay(to) || from>to || to>parisClock(clock).day || Date.parse(to)-Date.parse(from)>=366*dayMs)
-    fail(400,"Choisissez une période de 366 jours maximum qui se termine aujourd’hui ou plus tôt.");
-  const rows=await m.list(`WITH all_days AS (
+// Statistiques détaillées, sans seuil de masquage : réservées aux comptes disposant du droit « statistiques ».
+// Les totaux quotidiens incluent les jours archivés (agrégats) ; les répartitions fines portent sur les passages encore conservés.
+export const statisticsSql={
+  daily:`WITH all_days AS (
     SELECT day,visits,group_visits,early_exits,observed_ms,distinct_floor FROM daily_statistics WHERE day BETWEEN ? AND ?
     UNION ALL
     SELECT day,count(*),sum(source IN ('classe','groupe')),sum(ended_at IS NOT NULL AND ended_at<expires_at),
       sum(max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)),count(DISTINCT student_id)
     FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY day
-    ) SELECT day,sum(visits) AS visits,sum(group_visits) AS group_visits,sum(early_exits) AS early_exits,sum(observed_ms) AS observed_ms,max(distinct_floor) AS distinct_floor
-      FROM all_days GROUP BY day ORDER BY day`,from,to,clock,from,to);
-  const sum=rows.reduce((acc,r)=>({visits:acc.visits+r.visits, observed_ms:acc.observed_ms+r.observed_ms}),{visits:0,observed_ms:0});
-  if (!rows.some(r=>r.distinct_floor>=5)) return {from,to,hidden:true,threshold:5,daily:[]};
-  // Si une cellule est trop petite, n’afficher que le total de la période.
-  const daily=rows.some(r=>r.distinct_floor<5) ? [] : rows.map(({day,visits})=>({day,visits}));
-  return {from,to,hidden:false,threshold:5,visits:sum.visits,average:sum.observed_ms/sum.visits/60000,daily,hours:maskHours(await m.list(hoursSql,from,to))};
+    ) SELECT day,sum(visits) AS visits,sum(group_visits) AS group_visits,sum(early_exits) AS early_exits,sum(observed_ms) AS observed_ms,max(distinct_floor) AS students
+      FROM all_days GROUP BY day ORDER BY day`,
+  hours:`SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits
+    FROM local_visits WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour`,
+  retained:`SELECT count(*) AS visits,count(DISTINCT student_id) AS students,min(day) AS first_day FROM dated_visits WHERE day BETWEEN ? AND ?`,
+  sources:`SELECT source,count(*) AS visits FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY source ORDER BY visits DESC`,
+  classes:`SELECT coalesce(v.class_name,c.name) AS name,count(*) AS visits,count(DISTINCT v.student_id) AS students,
+      sum(v.source IN ('classe','groupe')) AS group_visits,
+      (SELECT count(*) FROM students s2 JOIN classes c2 ON c2.id=s2.class_id WHERE c2.name=coalesce(v.class_name,c.name) AND s2.active=1) AS size
+    FROM dated_visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
+    WHERE v.day BETWEEN ? AND ? GROUP BY coalesce(v.class_name,c.name) ORDER BY visits DESC,name`,
+  durations:`SELECT CASE WHEN d<15 THEN 0 WHEN d<30 THEN 1 WHEN d<60 THEN 2 WHEN d<120 THEN 3 ELSE 4 END AS bucket,count(*) AS visits
+    FROM (SELECT max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)/60000.0 AS d FROM dated_visits WHERE day BETWEEN ? AND ?) GROUP BY bucket`,
+  frequency:`SELECT CASE WHEN n=1 THEN 0 WHEN n<=3 THEN 1 WHEN n<=9 THEN 2 ELSE 3 END AS bucket,count(*) AS students
+    FROM (SELECT count(*) AS n FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY student_id) GROUP BY bucket`,
+  previous:`SELECT (SELECT coalesce(sum(visits),0) FROM daily_statistics WHERE day BETWEEN ? AND ?)+(SELECT count(*) FROM dated_visits WHERE day BETWEEN ? AND ?) AS visits`,
+  peak:`WITH overlap AS (
+      SELECT max(starts_at,?) AS a,min(coalesce(ended_at,expires_at),expires_at,?) AS b
+      FROM visits WHERE starts_at<? AND expires_at>? AND (ended_at IS NULL OR ended_at>?)),
+    changes AS (SELECT a AS ts,1 AS delta FROM overlap WHERE a<b UNION ALL SELECT b,-1 FROM overlap WHERE a<b),
+    timeline AS (SELECT sum(sum(delta)) OVER (ORDER BY ts) AS concurrent FROM changes GROUP BY ts)
+    SELECT coalesce(max(concurrent),0) AS peak FROM timeline`,
+};
+export const durationBuckets=["Moins de 15 min","15 à 30 min","30 min à 1 h","1 à 2 h","Plus de 2 h"];
+export const frequencyBuckets=["1 passage","2 à 3 passages","4 à 9 passages","10 passages et plus"];
+// Mise en forme commune (les mêmes règles sont reprises côté PHP).
+export function shapeStatistics({from,to,daily,hours,retained,sources,classes,durations,frequency,previous,peak}) {
+  const visits=daily.reduce((total,row)=>total+row.visits,0);
+  const observed=daily.reduce((total,row)=>total+row.observed_ms,0);
+  const group=daily.reduce((total,row)=>total+row.group_visits,0);
+  const early=daily.reduce((total,row)=>total+row.early_exits,0);
+  const busiest=daily.reduce((best,row)=>!best||row.visits>best.visits?row:best,null);
+  const bucket=(rows,names,key)=>names.map((label,index)=>({label,count:rows.find(row=>row.bucket===index)?.[key]??0}));
+  return {from,to,hidden:false,visits,average:visits?observed/visits/60000:0,observed_hours:observed/3600000,
+    group_visits:group,early_exits:early,days:daily.length,per_day:daily.length?visits/daily.length:0,
+    busiest:busiest?{day:busiest.day,visits:busiest.visits}:null,peak,previous,
+    students:retained.students,retained_visits:retained.visits,retained_from:retained.first_day,
+    daily:daily.map(({day,visits,group_visits,early_exits,students})=>({day,visits,group_visits,early_exits,students})),
+    hours:hours.map(row=>({weekday:row.weekday===0?7:row.weekday,hour:row.hour,visits:row.visits})),
+    sources:sources.map(row=>({source:row.source,visits:row.visits})),
+    classes:classes.map(row=>({name:row.name,visits:row.visits,students:row.students,group_visits:row.group_visits,size:row.size})),
+    durations:bucket(durations,durationBuckets,"visits"),frequency:bucket(frequency,frequencyBuckets,"students")};
+}
+export async function privateStatistics(m,from,to,clock,fail) {
+  if (!validDay(from) || !validDay(to) || from>to || to>parisClock(clock).day || Date.parse(to)-Date.parse(from)>=366*dayMs)
+    fail(400,"Choisissez une période de 366 jours maximum qui se termine aujourd’hui ou plus tôt.");
+  const length=Math.round((Date.parse(to)-Date.parse(from))/dayMs)+1;
+  const prevTo=shiftDay(from,-1), prevFrom=shiftDay(from,-length);
+  const start=parisMidnight(from), end=Math.min(parisMidnight(shiftDay(to,1)),clock);
+  const [daily,hours,retained,sources,classes,durations,frequency,previous,peak]=await Promise.all([
+    m.list(statisticsSql.daily,from,to,clock,from,to), m.list(statisticsSql.hours,from,to), m.one(statisticsSql.retained,from,to),
+    m.list(statisticsSql.sources,from,to), m.list(statisticsSql.classes,from,to), m.list(statisticsSql.durations,clock,from,to),
+    m.list(statisticsSql.frequency,from,to), m.one(statisticsSql.previous,prevFrom,prevTo,prevFrom,prevTo),
+    m.one(statisticsSql.peak,start,end,end,start,start)]);
+  return shapeStatistics({from,to,daily,hours,retained,sources,classes,durations,frequency,
+    previous:{from:prevFrom,to:prevTo,visits:previous.visits},peak:peak.peak});
 }
 
 export function scrubLegacy(tables) {

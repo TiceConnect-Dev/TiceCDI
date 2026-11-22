@@ -63,10 +63,6 @@ function kiosk() {
             <p class="borne-hint borne-card-hint">${icon("scan")} Avec la carte : un scan pour entrer, un autre pour sortir.</p>
             <div id="name-results" class="borne-results" role="list" aria-live="polite"></div>
             <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
-            <div class="borne-actions" id="code-actions">
-              <button class="borne-btn borne-in" id="entry-submit" type="submit" name="direction" value="entree">${icon("login")}<span>Entrée</span></button>
-              <button class="borne-btn borne-out" type="submit" name="direction" value="sortie">${icon("logout")}<span>Sortie</span></button>
-            </div>
           </form>
           <div id="entry-message" class="borne-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
         </div>
@@ -88,7 +84,7 @@ function kiosk() {
   setInterval(tick,10_000);
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
   // Un seul champ : un code CDI (douchette ou saisie) ou un nom. Toucher son nom enregistre directement l’entrée.
-  const results=$("#name-results"), codeActions=$("#code-actions");
+  const results=$("#name-results");
   const isCode=(value)=>/^cdi[0-9a-f]*$/i.test(value.trim());
   let nameSearchEnabled=true, searchTimer, searchVersion=0, idleTimer, rows=[];
   function clearSearch() { rows=[]; results.replaceChildren(); input.value=""; syncMode(); }
@@ -96,8 +92,6 @@ function kiosk() {
     const value=input.value.trim();
     const code=!nameSearchEnabled || !value || isCode(value);
     input.classList.toggle("is-code",nameSearchEnabled ? Boolean(value) && isCode(value) : true);
-    // Les boutons ne servent plus qu’en dernier recours : une carte complète est enregistrée automatiquement.
-    codeActions.hidden=true;
     if(code) { rows=[]; results.replaceChildren(); }
   }
   let lastCard="", lastCardAt=0;
@@ -136,8 +130,8 @@ function kiosk() {
     const choice=event.target.closest("[data-ref]");
     if(choice) checkIn(choice.dataset.direction,{ref:choice.dataset.ref,two_hours:two.checked});
   });
-  const entry=$("#entry-submit"), buttons=$$("button[type=submit]",form);
-  let busy=false, expiry, refreshing=false;
+  // Plus de boutons Entrée / Sortie : la carte bascule seule, le nom se touche dans la liste.
+  let busy=false, expiry, refreshing=false, closed=false;
   function show(text,tone) {
     clearTimeout(expiry);
     message.className="borne-feedback "+(tone||"info");
@@ -151,7 +145,7 @@ function kiosk() {
       const settings=await api("/borne/reglages");
       const wasHidden=form.hidden;
       form.hidden=!settings.activated;
-      entry.disabled=busy || !settings.open;
+      closed=!settings.open;
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
       if(nameSearchEnabled!==Boolean(settings.name_search)) {
         nameSearchEnabled=Boolean(settings.name_search);
@@ -183,9 +177,8 @@ function kiosk() {
   }
   async function checkIn(direction,data) {
     if(busy || form.hidden) return;
-    if(direction==="entree" && entry.disabled) return;
+    if(direction==="entree" && closed) return;
     busy=true;
-    buttons.forEach(button=>button.disabled=true);
     results.querySelectorAll("button").forEach(button=>button.disabled=true);
     try {
       const result=await api("/borne/"+direction,"POST",data);
@@ -198,14 +191,12 @@ function kiosk() {
     }
     finally {
       busy=false;
-      buttons.forEach(button=>button.disabled=false);
       refresh();
       input.focus({preventScroll:true});
     }
   }
   form.addEventListener("submit",event=>{
     event.preventDefault();
-    const direction=event.submitter?.value ?? "entree";
     const value=input.value.trim();
     if(nameSearchEnabled && value && !isCode(value)) {
       // Touche Entrée dans la recherche : un seul résultat suffit à entrer.
@@ -214,7 +205,7 @@ function kiosk() {
       return;
     }
     if(!value) return;
-    checkIn(event.submitter ? direction : "auto",{code:value,two_hours:two.checked});
+    checkIn("auto",{code:value,two_hours:two.checked});
   });
   $("#kiosk-fullscreen").hidden=!document.fullscreenEnabled;
   $("#kiosk-fullscreen").addEventListener("click",async event=>{

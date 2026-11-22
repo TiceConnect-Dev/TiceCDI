@@ -79,37 +79,89 @@ function maintain(Store $db, int $clock): array
     return $db->one('SELECT last_success FROM privacy_state WHERE id=1');
 }
 
+// Statistiques détaillées, sans seuil de masquage (mêmes requêtes que cdi/privacy.mjs).
+// Les totaux quotidiens incluent les jours archivés ; les répartitions fines portent sur les passages conservés.
 function privateStatistics(Store $db, string $from, string $to, int $clock): array
 {
     if (!validDay($from) || !validDay($to) || $from > $to || $to > parisClock($clock)['day']
         || midnight($from)->diff(midnight($to))->days >= 366) {
         fail(400, 'Choisissez une période de 366 jours maximum qui se termine aujourd’hui ou plus tôt.');
     }
-    $rows = $db->all('WITH all_days AS (
-        SELECT day,visits,observed_ms,distinct_floor FROM daily_statistics WHERE day BETWEEN ? AND ?
-        UNION ALL SELECT day,count(*),sum(max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)),count(DISTINCT student_id)
+    $length = midnight($from)->diff(midnight($to))->days + 1;
+    $prevTo = shiftDay($from, -1);
+    $prevFrom = shiftDay($from, -$length);
+    $start = midnight($from)->getTimestamp() * 1000;
+    $end = min(midnight(shiftDay($to, 1))->getTimestamp() * 1000, $clock);
+    $daily = $db->all("WITH all_days AS (
+        SELECT day,visits,group_visits,early_exits,observed_ms,distinct_floor FROM daily_statistics WHERE day BETWEEN ? AND ?
+        UNION ALL
+        SELECT day,count(*),sum(source IN ('classe','groupe')),sum(ended_at IS NOT NULL AND ended_at<expires_at),
+          sum(max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)),count(DISTINCT student_id)
         FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY day
-        ) SELECT day,sum(visits) AS visits,sum(observed_ms) AS observed_ms,max(distinct_floor) AS distinct_floor FROM all_days GROUP BY day ORDER BY day',
-        $from,$to,$clock,$from,$to);
-    $visits = array_sum(array_column($rows, 'visits'));
-    if (!$rows || max(array_column($rows,'distinct_floor')) < 5) {
-        return compact('from','to') + ['hidden' => true, 'threshold' => 5, 'daily' => []];
-    }
-    $daily = [];
-    foreach ($rows as $row) {
-        if ($row['distinct_floor'] < 5) {
-            $daily = [];
-            break;
+        ) SELECT day,sum(visits) AS visits,sum(group_visits) AS group_visits,sum(early_exits) AS early_exits,sum(observed_ms) AS observed_ms,max(distinct_floor) AS students
+          FROM all_days GROUP BY day ORDER BY day", $from, $to, $clock, $from, $to);
+    $hours = $db->all("SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits
+        FROM local_visits WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour", $from, $to);
+    $retained = $db->one('SELECT count(*) AS visits,count(DISTINCT student_id) AS students,min(day) AS first_day FROM dated_visits WHERE day BETWEEN ? AND ?', $from, $to);
+    $sources = $db->all('SELECT source,count(*) AS visits FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY source ORDER BY visits DESC', $from, $to);
+    $classes = $db->all("SELECT coalesce(v.class_name,c.name) AS name,count(*) AS visits,count(DISTINCT v.student_id) AS students,
+          sum(v.source IN ('classe','groupe')) AS group_visits,
+          (SELECT count(*) FROM students s2 JOIN classes c2 ON c2.id=s2.class_id WHERE c2.name=coalesce(v.class_name,c.name) AND s2.active=1) AS size
+        FROM dated_visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
+        WHERE v.day BETWEEN ? AND ? GROUP BY coalesce(v.class_name,c.name) ORDER BY visits DESC,name", $from, $to);
+    $durations = $db->all('SELECT CASE WHEN d<15 THEN 0 WHEN d<30 THEN 1 WHEN d<60 THEN 2 WHEN d<120 THEN 3 ELSE 4 END AS bucket,count(*) AS visits
+        FROM (SELECT max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)/60000.0 AS d FROM dated_visits WHERE day BETWEEN ? AND ?) GROUP BY bucket', $clock, $from, $to);
+    $frequency = $db->all('SELECT CASE WHEN n=1 THEN 0 WHEN n<=3 THEN 1 WHEN n<=9 THEN 2 ELSE 3 END AS bucket,count(*) AS students
+        FROM (SELECT count(*) AS n FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY student_id) GROUP BY bucket', $from, $to);
+    $previous = $db->one('SELECT (SELECT coalesce(sum(visits),0) FROM daily_statistics WHERE day BETWEEN ? AND ?)+(SELECT count(*) FROM dated_visits WHERE day BETWEEN ? AND ?) AS visits',
+        $prevFrom, $prevTo, $prevFrom, $prevTo);
+    $peak = $db->one('WITH overlap AS (
+          SELECT max(starts_at,?) AS a,min(coalesce(ended_at,expires_at),expires_at,?) AS b
+          FROM visits WHERE starts_at<? AND expires_at>? AND (ended_at IS NULL OR ended_at>?)),
+        changes AS (SELECT a AS ts,1 AS delta FROM overlap WHERE a<b UNION ALL SELECT b,-1 FROM overlap WHERE a<b),
+        timeline AS (SELECT sum(sum(delta)) OVER (ORDER BY ts) AS concurrent FROM changes GROUP BY ts)
+        SELECT coalesce(max(concurrent),0) AS peak FROM timeline', $start, $end, $end, $start, $start);
+
+    $int = static fn ($value) => (int) ($value ?? 0);
+    $visits = array_sum(array_map($int, array_column($daily, 'visits')));
+    $observed = array_sum(array_map($int, array_column($daily, 'observed_ms')));
+    $busiest = null;
+    foreach ($daily as $row) {
+        if ($busiest === null || (int) $row['visits'] > $busiest['visits']) {
+            $busiest = ['day' => $row['day'], 'visits' => (int) $row['visits']];
         }
-        $daily[] = ['day' => $row['day'], 'visits' => $row['visits']];
     }
-    $average = array_sum(array_column($rows, 'observed_ms')) / $visits / 60000;
-    // Répartition jour × heure (heure de Paris) des passages conservés ; cases de moins de 5 passages masquées.
-    $hours = array_map(static fn ($row) => ['weekday' => (int) $row['weekday'] === 0 ? 7 : (int) $row['weekday'], 'hour' => (int) $row['hour'],
-        'visits' => $row['visits'] >= 5 ? $row['visits'] : null], $db->all("SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,
-        CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits FROM local_visits
-        WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour", $from, $to));
-    return compact('from','to','visits','average','daily','hours') + ['hidden' => false, 'threshold' => 5];
+    $bucket = static function (array $rows, array $names, string $key): array {
+        $out = [];
+        foreach ($names as $index => $label) {
+            $count = 0;
+            foreach ($rows as $row) {
+                if ((int) $row['bucket'] === $index) {
+                    $count = (int) $row[$key];
+                }
+            }
+            $out[] = ['label' => $label, 'count' => $count];
+        }
+        return $out;
+    };
+    return [
+        'from' => $from, 'to' => $to, 'hidden' => false, 'visits' => $visits,
+        'average' => $visits ? $observed / $visits / 60000 : 0, 'observed_hours' => $observed / 3_600_000,
+        'group_visits' => array_sum(array_map($int, array_column($daily, 'group_visits'))),
+        'early_exits' => array_sum(array_map($int, array_column($daily, 'early_exits'))),
+        'days' => count($daily), 'per_day' => $daily ? $visits / count($daily) : 0, 'busiest' => $busiest,
+        'peak' => (int) $peak['peak'], 'previous' => ['from' => $prevFrom, 'to' => $prevTo, 'visits' => (int) $previous['visits']],
+        'students' => (int) $retained['students'], 'retained_visits' => (int) $retained['visits'], 'retained_from' => $retained['first_day'],
+        'daily' => array_map(static fn ($row) => ['day' => $row['day'], 'visits' => (int) $row['visits'], 'group_visits' => (int) $row['group_visits'],
+            'early_exits' => (int) $row['early_exits'], 'students' => (int) $row['students']], $daily),
+        'hours' => array_map(static fn ($row) => ['weekday' => (int) $row['weekday'] === 0 ? 7 : (int) $row['weekday'], 'hour' => (int) $row['hour'],
+            'visits' => (int) $row['visits']], $hours),
+        'sources' => array_map(static fn ($row) => ['source' => $row['source'], 'visits' => (int) $row['visits']], $sources),
+        'classes' => array_map(static fn ($row) => ['name' => $row['name'], 'visits' => (int) $row['visits'], 'students' => (int) $row['students'],
+            'group_visits' => (int) $row['group_visits'], 'size' => (int) $row['size']], $classes),
+        'durations' => $bucket($durations, ['Moins de 15 min', '15 à 30 min', '30 min à 1 h', '1 à 2 h', 'Plus de 2 h'], 'visits'),
+        'frequency' => $bucket($frequency, ['1 passage', '2 à 3 passages', '4 à 9 passages', '10 passages et plus'], 'students'),
+    ];
 }
 
 function studentFile(Store $db, string $id): array
