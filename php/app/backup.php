@@ -13,7 +13,8 @@ function exportBackup(Store $db, int $clock): array
         $tables[$name] = $db->all("SELECT * FROM $name");
     }
     $data = ['format' => 'cdi-backup', 'version' => 1, 'created_at' => gmdate('Y-m-d\TH:i:s\Z', intdiv($clock, 1000)),
-        'tables' => $tables];
+        'tables' => $tables,
+        'privacy' => recoveryState($db)];
     if (strlen(jsonData($data)) > MAX_BACKUP_BYTES) {
         fail(413, 'Les données dépassent la taille maximale d’une sauvegarde depuis l’administration.');
     }
@@ -42,7 +43,9 @@ function validBackupRow(string $table, array $row): bool
 function replaceBackupTables(Store $db, array $tables): void
 {
     foreach (array_reverse(BACKUP_TABLES) as $name) {
-        $db->run("DELETE FROM $name");
+        if ($name !== 'audit_log') {
+            $db->run("DELETE FROM $name");
+        }
     }
     foreach (BACKUP_TABLES as $name) {
         $schema = $db->all("PRAGMA table_info($name)");
@@ -65,22 +68,65 @@ function replaceBackupTables(Store $db, array $tables): void
             if (!validBackupRow($name, $row)) {
                 fail(400, "Données invalides dans la rubrique « $name ».");
             }
-            $db->run("INSERT INTO $name ($columns) VALUES ($placeholders)", ...$values);
+            $verb = $name === 'audit_log' ? 'INSERT OR IGNORE' : 'INSERT';
+            $db->run("$verb INTO $name ($columns) VALUES ($placeholders)", ...$values);
         }
     }
     normalizeHours($tables['opening_hours']);
 }
 
-function backupResource(Store $db, array $me, string $method, int $clock): array
+function backupResource(Store $db, array $me, string $path, string $method, int $clock): array
 {
-    adminOnly($me);
-    if ($method === 'GET') {
-        $day = parisClock($clock)['day'];
-        header("Content-Disposition: attachment; filename=\"Sauvegarde-CDI-$day.json\"");
-        return exportBackup($db, $clock);
+    if ($path === '/api/gestion/sauvegarde' && $method === 'GET') {
+        need($me,'export','restaurer');
+        return ['rows' => in_array('export',$me['rights'],true)
+            ? $db->all('SELECT id,created_at FROM encrypted_backups ORDER BY created_at DESC,id DESC') : []];
     }
-    $data = requestData(MAX_BACKUP_BYTES + 1024);
-    $backup = $data['backup'] ?? null;
+    if ($path === '/api/gestion/sauvegarde/export' && $method === 'POST') {
+        need($me,'export');
+        $data = requestData();
+        $envelope = encryptBackup(jsonData(exportBackup($db,$clock)),$data['phrase'] ?? null);
+        $db->run('INSERT INTO encrypted_backups VALUES (?,?,?)',uid(),$clock,jsonData($envelope));
+        rotateBackups($db);
+        audit($db,$me,'sauvegarde','Export chiffré','Sauvegarde',null,null);
+        return $envelope;
+    }
+    if ($path === '/api/gestion/sauvegarde/etat/export' && $method === 'POST') {
+        need($me,'export');
+        $data = requestData();
+        $envelope = encryptBackup(jsonData(['format'=>'cdi-recovery','privacy'=>recoveryState($db)]),$data['phrase'] ?? null);
+        audit($db,$me,'sauvegarde','Export de l’état de reprise','Historique des purges et effacements',null,null);
+        return $envelope;
+    }
+    if ($path === '/api/gestion/sauvegarde/etat' && $method === 'POST') {
+        need($me,'restaurer');
+        $data = requestData(MAX_ENVELOPE_BYTES);
+        $file = decryptBackup($data['backup'] ?? null,$data['phrase'] ?? null);
+        if (($file['format'] ?? null) !== 'cdi-recovery' || !isset($file['privacy'])) {
+            fail(400,'Ce fichier n’est pas un état de reprise.');
+        }
+        applyRecovery($db,checkedPrivacyState($file['privacy']),$clock);
+        audit($db,$me,'sauvegarde','Import de l’état de reprise','Historique des purges et effacements',null,null);
+        return ['ok'=>true];
+    }
+    if ($method === 'GET' && preg_match('~^/api/gestion/sauvegarde/([a-f0-9-]+)$~D',$path,$match)) {
+        need($me,'export');
+        $row = $db->one('SELECT envelope FROM encrypted_backups WHERE id=?',$match[1]);
+        if (!$row) {
+            fail(404,'Sauvegarde indisponible.');
+        }
+        audit($db,$me,'sauvegarde','Téléchargement','Sauvegarde chiffrée',null,null);
+        header('Content-Disposition: attachment; filename="TiceCDI-Sauvegarde.json"');
+        return json_decode($row['envelope'],true,flags:JSON_THROW_ON_ERROR);
+    }
+    if ($path !== '/api/gestion/sauvegarde' || $method !== 'POST') {
+        fail(404,'Action introuvable.');
+    }
+    need($me,'restaurer');
+    $data = requestData(MAX_ENVELOPE_BYTES);
+    $encoded = $data['backup'] ?? null;
+    $backup = decryptBackup($encoded,$data['phrase'] ?? null);
+    $privacy = checkedPrivacyState($backup['privacy'] ?? null);
     $tables = $backup['tables'] ?? null;
     $date = $backup['created_at'] ?? null;
     if (!is_array($backup) || ($backup['format'] ?? null) !== 'cdi-backup' || ($backup['version'] ?? null) !== 1
@@ -99,7 +145,7 @@ function backupResource(Store $db, array $me, string $method, int $clock): array
     if (strlen($serialized) > MAX_BACKUP_BYTES) {
         fail(413, 'Le fichier est trop volumineux.');
     }
-    $fingerprint = hash('sha256', $serialized);
+    $fingerprint = hash('sha256', jsonData($encoded));
     $summary = ['created_at' => $date, 'counts' => $counts];
     $preview = !array_key_exists('token', $data);
     if (!$preview && (!is_string($data['token']) || !hash_equals($fingerprint, $data['token']))) {
@@ -123,6 +169,9 @@ function backupResource(Store $db, array $me, string $method, int $clock): array
         $db->run('RELEASE backup_preview');
         return $summary + ['token' => $fingerprint];
     }
+    $db->run("UPDATE audit_log SET target='Présence',before_json=NULL,after_json=NULL WHERE area='presences'");
+    $db->run("UPDATE audit_log SET target='Fiche d’appel',before_json=NULL,after_json=NULL WHERE area='seances' AND action='Correction d’un appel'");
+    applyRecovery($db,$privacy,$clock);
     audit($db, $me, 'sauvegarde', 'Restauration d’une sauvegarde', 'Données du CDI', null, [
         'sauvegarde_du' => $date, 'élèves' => $counts['students'], 'présences' => $counts['visits'], 'créneaux' => $counts['planning'],
     ]);

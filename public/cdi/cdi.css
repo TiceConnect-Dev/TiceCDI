@@ -358,3 +358,28 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
   .call-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .school-year-layout{grid-template-columns:1fr}
 }
+
+.tice-wordmark{display:block;width:clamp(165px,25vw,285px)}
+.tice-wordmark img,.tice-hero-logo img{display:block;width:100%;height:auto}
+.tice-brand-icon{width:52px;height:52px}
+.tice-hero-logo{display:block;max-width:470px}
+.home-card{padding:clamp(24px,6vw,68px);width:100%}
+.home-card h1{margin:0 0 16px}
+.home-subtitle{font-size:clamp(1.1rem,4vw,1.5rem);line-height:1.45;font-weight:650;color:#0e2545}
+.home-card .button-row{margin-top:26px}
+#kiosk-state{color:#0e2545;margin-bottom:14px}
+#entry-form .button-row{margin:16px 0}
+.notice-body,.privacy-block{margin:16px 0}
+.privacy-block dt{font-weight:700;margin-top:12px}
+.privacy-block dd{margin:4px 0;white-space:pre-line}
+.accessible-planning{margin:16px;padding:12px;background:#fff;color:#0e2545}
+.accessible-planning summary{cursor:pointer;font-weight:700}
+.display-head .tice-wordmark{background:#fff;padding:6px;border-radius:4px}
+:focus-visible{outline:3px solid #0053ad;outline-offset:3px}
+@media (max-width:560px){
+  .tice-wordmark{width:42px}
+  .tice-wordmark img{height:42px;aspect-ratio:1}
+  .tice-brand-icon{width:44px;height:44px}
+  .masthead-inner{gap:10px}
+  .top-links{flex-wrap:wrap;gap:8px}
+}

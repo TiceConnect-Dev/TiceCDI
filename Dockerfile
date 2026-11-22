@@ -1,7 +1,9 @@
 FROM node:24-alpine
+LABEL org.opencontainers.image.title="TiceCDI" org.opencontainers.image.licenses="LicenseRef-TiceCDI-NonCommercial"
 WORKDIR /app
 ENV NODE_ENV=production PORT=8080 CDI_DATA_DIR=/data
 RUN mkdir -p /data && chown node:node /data
+COPY --chown=node:node LICENSE ./LICENSE
 COPY --chown=node:node cdi ./cdi
 COPY --chown=node:node standalone ./standalone
 COPY --chown=node:node drizzle/*.sql ./drizzle/

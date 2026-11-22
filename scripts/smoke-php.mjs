@@ -1,188 +1,322 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, readdirSync, copyFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
-import { api as nodeApi } from "../cdi/service.mjs";
-import { parisClock, presenceDeadline, shiftDay } from "../cdi/calendar.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { parisClock, presenceDeadline, shiftDay, parisMidnight } from "../cdi/calendar.mjs";
 import { openDatabase } from "../standalone/sqlite.mjs";
+import { maintain } from "../cdi/privacy.mjs";
+import { model } from "../cdi/service.mjs";
+import { csvRows } from "../public/cdi/shared.js";
 
-const root = mkdtempSync(join(tmpdir(), "gestion-cdi-php-"));
-const web = join(root, "public");
-const dataDir = join(root, "data");
-const php = process.env.PHP_BIN || "php";
-let server;
-let output = "";
-const pause = 50;
-const setupKey = "test-php";
-const password = "MotDePasse-Pour-Test-Uniquement";
+const root=mkdtempSync(join(tmpdir(),"ticecdi-smoke-"));
+const php=process.env.PHP_BIN || "php";
+const secret="Une phrase de test TiceCDI 2026";
+const password="Un mot de passe uniquement pour le test";
+const setupKey="installation-fictive";
+const sockets=[];
+let output="";
+const archive=process.argv[2] || "dist/TiceCDI-PHP.zip";
 
 async function freePort() {
-  const socket = createServer();
-  socket.listen(0, "127.0.0.1");
-  await once(socket, "listening");
-  const port = socket.address().port;
+  const socket=createServer().listen(0,"127.0.0.1");
+  await once(socket,"listening");
+  const port=socket.address().port;
   socket.close();
-  await once(socket, "close");
+  await once(socket,"close");
   return port;
 }
 
-try {
-  mkdirSync(web);
-  execFileSync("unzip", ["-q", process.argv[2] ?? "dist/Gestion-CDI-PHP.zip", "-d", web]);
-  const address = "127.0.0.1:" + await freePort();
-  const origin = "http://" + address;
-  const base = origin + "/Gestion-CDI-PHP";
-  const entry = base + "/index.php";
-  const route = (path) => {
-    const target = new URL(path, origin);
-    target.searchParams.set("route", target.pathname);
-    return entry + "?" + target.searchParams;
+async function serve(kind) {
+  const fixture=join(root,kind), data=join(fixture,"data"), web=join(fixture,"web");
+  mkdirSync(web,{recursive:true});
+  const port=await freePort();
+  const base="http://127.0.0.1:"+port;
+  const isPhp=kind.startsWith("php");
+  const prefix=isPhp?"/Gestion-CDI-PHP":"";
+  if(isPhp) execFileSync("unzip",["-q",archive,"-d",web]);
+  const env={...process.env,PORT:String(port),CDI_DATA_DIR:data,CDI_ORIGIN:"",CDI_SETUP_KEY:setupKey};
+  const server=spawn(isPhp?php:process.execPath,isPhp?["-S","127.0.0.1:"+port,"-t",web]:["standalone/server.mjs"],
+    {env,stdio:["ignore","pipe","pipe"]});
+  server.stderr.on("data",chunk=>{output+=chunk;});
+  server.stdout.on("data",chunk=>{output+=chunk;});
+  sockets.push(server);
+  const route=path=>{
+    if(!isPhp) return base+path;
+    const parsed=new URL(path,base);
+    parsed.searchParams.set("route",parsed.pathname);
+    return base+prefix+"/index.php?"+parsed.searchParams;
   };
-  const env = { ...process.env, CDI_DATA_DIR: dataDir, CDI_ORIGIN: "", CDI_SETUP_KEY: "" };
-  server = spawn(php, ["-S", address, "-t", web], { env, stdio: ["ignore", "ignore", "pipe"] });
-  server.stderr.on("data", (chunk) => { output += chunk; });
-  let running = false;
-  for (let attempt = 0; attempt < 60; attempt++) {
-    try {
-      const response = await fetch(route("/healthz"));
-      assert.equal(response.status, 200);
-      assert.equal(await response.text(), "ok");
-      running = true;
-      break;
-    } catch (error) {
-      if (error.code === "ERR_ASSERTION") throw error;
-      await delay(pause);
-    }
+  for(let i=0;i<100;i++){
+    try {if((await fetch(route("/healthz"))).ok) break;} catch {}
+    if(i===99) throw Error("Édition indisponible "+kind);
+    await delay(50);
   }
-  assert.ok(running, "Le serveur PHP doit répondre");
-
-  const html = await (await fetch(route("/gestion"))).text();
-  assert.match(html, /name="cdi-entry" content="\/Gestion-CDI-PHP\/index\.php"/);
-  const bundle = await (await fetch(base + "/cdi/shared.js")).text();
-  assert.match(bundle, /function urlFor/);
-  let cookie = "";
-  async function call(path, method = "GET", body, status = 200, session = cookie) {
-    const response = await fetch(route("/api" + path), {
-      method,
-      headers: { Cookie: session, "Content-Type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const result = await response.json();
-    assert.equal(response.status, status, method + " " + path + " " + JSON.stringify(result));
-    if (response.headers.has("set-cookie")) {
-      assert.match(response.headers.get("set-cookie"), /path=\/Gestion-CDI-PHP\//i);
-      cookie = response.headers.get("set-cookie").split(";")[0];
-    }
-    return result;
+  let current="";
+  async function call(path,{method="GET",body,expected=200,session=current}={}) {
+    const response=await fetch(route("/api"+path),{method,
+      headers:{"Content-Type":"application/json",Cookie:session},
+      ...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const payload=await response.json();
+    assert.equal(response.status,expected,kind+" "+method+" "+path+" "+JSON.stringify(payload));
+    const cookies=response.headers.getSetCookie();
+    return {payload,cookies:cookies.map(part=>part.split(";")[0])};
   }
+  async function get(path,session=current,expected=200){return (await call(path,{session,expected})).payload;}
+  async function post(path,body,session=current,expected=200){return (await call(path,{method:"POST",body,session,expected})).payload;}
+  async function patch(path,body,session=current,expected=200){return (await call(path,{method:"PATCH",body,session,expected})).payload;}
+  async function login(login,password) {
+    return (await call("/auth/login",{method:"POST",body:{username:login,password},session:""})).cookies[0];
+  }
+  current=(await call("/auth/setup",{method:"POST",body:{key:setupKey,username:"admin",name:"Administration test",password},session:""})).cookies[0];
+  assert.ok(current.startsWith("cdi_session="));
+  return {kind,data,web,prefix,base,route,env,get,post,patch,call,login,admin:current};
+}
 
-  assert.equal((await call("/auth/status")).setup, true);
-  assert.equal((await fetch(origin + "/data/installation.key")).status, 404);
-  const key = readFileSync(join(dataDir, "installation.key"), "utf8").trim();
-  await call("/auth/setup", "POST", { key: "incorrecte", username: "admin", name: "Admin de test", password }, 403);
-  await call("/auth/setup", "POST", { key, username: "admin", name: "Admin de test", password });
-  const admin = cookie;
-  await call("/gestion/comptes", "POST", { username: "lecture", name: "Vie scolaire", password, rights: ["presence"] });
-  await call("/auth/login", "POST", { username: "lecture", password });
-  const viewer = cookie;
-  cookie = admin;
-  assert.equal((await call("/auth/status")).user.admin, true);
-  await call("/gestion/sauvegarde", "GET", undefined, 403, viewer);
-  await call("/gestion/sauvegarde", "GET", undefined, 401, "");
-  await call("/gestion/reglages", "PATCH", { open: true, second_hour: true, message: "Test", capacity: 5, hide_weekend: true });
-  await call("/gestion/horaires", "PATCH", { use_hours: false, hours: [{ weekday: 1, start_min: 480, end_min: 720 }] });
+function exactExpiry() {
+  const arrival=Date.parse("2026-11-21T08:30:00+01:00");
+  const expiry=Date.parse("2026-11-21T09:00:00+01:00");
+  const extra=Date.parse("2026-11-21T10:00:00+01:00");
+  assert.equal(presenceDeadline(arrival),expiry);
+  assert.equal(presenceDeadline(arrival,2),extra);
+  const out=execFileSync(php,["-r",'require "php/app/core.php"; echo json_encode([fullHour('+arrival+'),fullHour('+arrival+',2)]);']);
+  assert.deepEqual(JSON.parse(out),[expiry,extra]);
+}
 
-  const rows = [
-    { first_name: "Éva", last_name: "Démo", class_name: "5e A", external_id: "PHP-01" },
-    { first_name: "Nils", last_name: "Démo", class_name: "5e A", external_id: "PHP-02" },
-    { first_name: "Amélie", last_name: "Démo", class_name: "5e A", external_id: "PHP-03" },
-  ];
-  assert.equal((await call("/gestion/import", "POST", { rows, preview: true })).added, 3);
-  assert.equal((await call("/gestion/classes")).rows.length, 0);
-  await call("/gestion/import", "POST", { rows });
-  const [a, b, c] = (await call("/gestion/eleves?badges=1")).rows;
-  const classe = a.class_id;
-  assert.equal((await call("/borne/recherche?q=eva", "GET", undefined, 200, "")).results[0].first_name, "Éva");
-  const start = Date.now();
-  const bench = await call("/borne/entree", "POST", { code: a.code, two_hours: true }, 200, "");
-  const after = Date.now();
-  const presence = (await call("/gestion/presences", "GET", undefined, 200, viewer)).rows[0];
-  assert.ok(presence.starts_at >= start && presence.starts_at <= after);
-  assert.equal(bench.expires_at, presenceDeadline(presence.starts_at, 2));
-  const extension = { expires_at: bench.expires_at, minutes: 30 };
-  await call("/gestion/presences/" + presence.id, "PATCH", extension, 403, viewer);
-  assert.equal((await call("/gestion/presences/" + presence.id, "PATCH", extension)).expires_at, bench.expires_at + 1_800_000);
-  await call("/gestion/presences/" + presence.id, "PATCH", extension, 409);
-
-  const group = (await call("/gestion/groupes", "POST", { name: "Atelier de test", student_ids: [a.id, b.id, c.id] })).id;
-  const now = parisClock();
-  const monday = shiftDay(now.day, 1 - now.weekday);
-  await call("/gestion/planning", "POST", { day: now.day, start_min: 540, end_min: 600, title: "Atelier test", kind: "atelier",
-    notes: "Note interne", group_id: group });
-  const plan = (await call("/gestion/planning?week=" + monday)).rows[0];
-  const publicPlan = (await call("/planning?week=" + monday, "GET", undefined, 200, "")).rows[0];
-  assert.equal(plan.notes, "Note interne");
-  assert.equal(Object.hasOwn(publicPlan, "notes"), false);
-  const opened = await call("/gestion/seances", "POST", {
-    request_id: crypto.randomUUID(), kind: "groupe", roster_id: group, plan_id: plan.id, duration: 120, student_ids: [b.id],
-  });
-  assert.equal(opened.rows.find((row) => row.student_id === b.id).status, "present");
-  assert.equal(opened.rows.find((row) => row.student_id === c.id).status, "absent");
-  assert.equal((await call("/gestion/seances/" + opened.session.id + "/fin", "POST", { keep_student_ids: [] })).closed, 1);
-  const counts = await call("/gestion/statistiques?from=" + now.day + "&to=" + now.day);
-  assert.equal(counts.visits, 2);
-  assert.equal(counts.hours.reduce((total, visits) => total + visits, 0), 2);
-
-  const phpBackup = await call("/gestion/sauvegarde");
-  assert.equal(Object.hasOwn(phpBackup.tables, "accounts"), false);
-  const invalid = structuredClone(phpBackup);
-  invalid.tables.students[0].class_id = "classe-inconnue";
-  await call("/gestion/sauvegarde", "POST", { backup: invalid }, 400);
-  assert.equal((await call("/gestion/eleves")).rows.length, 3);
-  const db = openDatabase(":memory:", new URL("../drizzle/", import.meta.url));
+async function migration() {
+  const old=join(root,"old-migrations");
+  mkdirSync(old);
+  for(const file of readdirSync("drizzle").filter(file=>/^000[0-3].*\.sql$/.test(file))) copyFileSync(join("drizzle",file),join(old,file));
+  const original=join(root,"ancienne");
+  mkdirSync(original);
+  const store=join(original,"cdi.sqlite");
+  const before=openDatabase(store,pathToFileURL(old+"/"));
+  const yesterday=Date.now()-172800000;
+  before.database.prepare("INSERT INTO classes VALUES (?,?,?)").run("cl","6e A","6e a");
+  before.database.prepare("INSERT INTO students VALUES (?,?,?,?,?,?,?,?,1)").run("student","Prénom","Démo","prenom demo","demo|prenom","cl","CDIF000000000",null);
+  before.database.prepare("INSERT INTO visits (id,student_id,starts_at,expires_at) VALUES (?,?,?,?)").run("visite","student",yesterday,yesterday+3600000);
+  before.database.close();
+  const oldPhp=join(root,"ancienne-php");
+  mkdirSync(oldPhp);
+  copyFileSync(store,join(oldPhp,"cdi.sqlite"));
+  const report=execFileSync(php,["-r",`require "php/app/core.php"; require "php/app/privacy.php";
+    $db=new Store($argv[1],"drizzle");
+    $db->atomic(static fn () => maintain($db,clockMs()));
+    echo json_encode([$db->one("SELECT purge_enabled FROM privacy_settings")["purge_enabled"],$db->one("SELECT count(*) AS n FROM visits")["n"]]);`,oldPhp]);
+  assert.deepEqual(JSON.parse(report),[0,1]);
+  const after=openDatabase(store,new URL("../drizzle/",import.meta.url));
   try {
-    let nodeCookie = "";
-    async function nodeCall(path, method = "GET", body) {
-      const response = await nodeApi(new Request("http://node.test/api" + path, {
-        method, headers: { Cookie: nodeCookie, "Content-Type": "application/json" },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      }), { DB: db, CDI_SETUP_KEY: setupKey });
-      const data = await response.json();
-      assert.equal(response.status, 200, method + " " + path + " " + JSON.stringify(data));
-      if (response.headers.has("set-cookie")) nodeCookie = response.headers.get("set-cookie").split(";")[0];
-      return data;
-    }
-    await nodeCall("/auth/setup", "POST", { key: setupKey, username: "admin", name: "Admin Node", password });
-    const preview = await nodeCall("/gestion/sauvegarde", "POST", { backup: phpBackup });
-    assert.equal(preview.counts.visits, 2);
-    await nodeCall("/gestion/sauvegarde", "POST", { backup: phpBackup, token: preview.token });
-    const nodeBackup = await nodeCall("/gestion/sauvegarde");
-    const nodePreview = await call("/gestion/sauvegarde", "POST", { backup: nodeBackup });
-    await call("/gestion/sauvegarde", "POST", { backup: nodeBackup, token: nodePreview.token });
-    assert.deepEqual((await call("/gestion/classes")).rows, [{ id: classe, name: "5e A", total: 3 }]);
-    assert.equal((await call("/auth/status")).user.name, "Admin de test");
-  } finally {
-    db.database.close();
-  }
+    await maintain(model(after));
+    assert.equal(after.database.prepare("SELECT purge_enabled FROM privacy_settings").get().purge_enabled,0);
+    assert.equal(after.database.prepare("SELECT count(*) AS n FROM visits").get().n,1);
+  } finally {after.database.close();}
+}
 
-  const year = await call("/gestion/annees");
-  const change = { from: year.current, to: year.next, rows: [{ ...rows[0], class_name: "4e A" }] };
-  const preview = await call("/gestion/annees", "POST", change);
-  assert.equal(preview.counts.moved, 1);
-  await call("/gestion/annees", "POST", { ...change, token: preview.token });
-  assert.equal((await call("/gestion/annees/" + year.current)).rows.length, 3);
-  assert.equal((await call("/gestion/eleves?badges=1")).rows[0].class_name, "4e A");
-  console.log("OK · ZIP PHP en sous-dossier, borne, permissions, planning, fiches d’appel, statistiques, sauvegardes PHP/Node et année scolaire.");
-} catch (error) {
+const setting={
+  profile:{institution:"Collège de test",contact:"contact@example.invalid",dpd:"dpd@example.invalid",purpose:"Gestion des passages",
+    basis:"Mission d’intérêt public – test",source:"Fichier interne",recipients:"CDI et vie scolaire",hosting:"Établissement",rights:"Auprès du DPD"},
+  purge_enabled:true,retention_days:0,audit_days:30,backup_days:30,backup_limit:2,public_planning:true,confirm_retention:true,
+};
+
+async function exercise(host) {
+  const {get,post,patch,call,login}=host;
+  const html=await (await fetch(host.route("/"))).text();
+  assert.match(html,/<title>TiceCDI<\/title>/);
+  for(const asset of ["ticecdi-logo.webp","ticecdi-icon.webp"]){
+    const img=await fetch(host.base+host.prefix+"/cdi/"+asset);
+    assert.equal(img.status,200);
+    assert.equal((await img.arrayBuffer()).byteLength>1000,true);
+  }
+  if(host.kind==="php") {
+    const payload=readFileSync(join(host.web,host.prefix.slice(1),"LICENSE"));
+    assert.deepEqual(payload,readFileSync("LICENSE"));
+  }
+  assert.deepEqual(await get("/borne/reglages",""),{activated:false});
+  await get("/borne/recherche?q=Demo","",403);
+  await post("/borne/entree",{student_id:"eleve"},"",403);
+  await get("/gestion/sauvegarde","",401);
+  const today=parisClock().day, monday=shiftDay(today,1-parisClock().weekday);
+  await get("/planning?week="+monday,"",403);
+  for(const [name,rights] of Object.entries({vie:["presence"],cdi:["presence","sorties","borne","arrivees"],
+    exporteur:["export"],restauration:["restaurer"],dpo:["donnees"],plan:["planning"]})) {
+    await post("/gestion/comptes",{username:name,name:name==="vie"?"Vie scolaire":name,rights,password});
+  }
+  const [viewer,cdi,exporter,restore,dpo,plan]=await Promise.all(
+    ["vie","cdi","exporteur","restauration","dpo","plan"].map(name=>login(name,password)));
+  await post("/gestion/borne/activation",{},viewer,403);
+  await get("/gestion/confidentialite",cdi,403);
+  await get("/gestion/presences",viewer);
+  await get("/gestion/eleves",viewer,403);
+  await post("/gestion/export",{type:"planning"},plan,403);
+  await post("/gestion/sauvegarde/export",{phrase:secret},restore,403);
+  await post("/gestion/sauvegarde",{backup:{}},exporter,403);
+  await get("/gestion/sauvegarde/00000000-0000-0000-0000-000000000000",restore,403);
+  await post("/gestion/eleves/recherche",{q:"Demo"},viewer,403);
+  const result=await patch("/gestion/confidentialite",setting);
+  assert.deepEqual(result.profile,setting.profile);
+  const notice=await get("/notice","");
+  for(const key of ["profile","public_planning","retention_days","audit_days","backup_days","backup_limit","purge_enabled"])
+    assert.deepEqual(notice[key],setting[key],key);
+  await post("/gestion/planning",{day:today,start_min:540,end_min:600,title:"Titre privé",notes:"Note privée",kind:"cours"});
+  await post("/gestion/planning",{day:today,start_min:600,end_min:660,title:"Fermeture privée",kind:"fermeture"});
+  const visual=await get("/planning?week="+monday,"");
+  assert.deepEqual(visual.rows.map(row=>row.title),["Réservé","Fermé"]);
+  assert.ok(visual.rows.every(row=>!row.class_name&&!Object.hasOwn(row,"notes")&&!Object.hasOwn(row,"id")));
+  assert.equal((await get("/gestion/planning?week="+monday,plan)).rows[0].title,"Titre privé");
+  await patch("/gestion/horaires",{use_hours:false,hours:[{weekday:1,start_min:480,end_min:720}]});
+  const rows=Array.from({length:6},(_,i)=>({first_name:"Élève "+i,last_name:"Démo",class_name:"5e A",external_id:"CD-"+i,
+    irrelevant:"champs exclus"}));
+  assert.equal((await post("/gestion/import",{rows,preview:true})).added,6);
+  await post("/gestion/import",{rows});
+  const pupils=(await get("/gestion/eleves?badges=1")).rows;
+  await get("/gestion/eleves?badges=1",viewer,403);
+  const id=pupils[0].id;
+  const code=pupils[0].code;
+  await get("/gestion/dossier/"+id,viewer,403);
+  assert.ok((await post("/gestion/dossier/recherche",{q:"demo"},dpo)).rows.some(row=>row.id===id));
+  await patch("/gestion/dossier/"+id,{first_name:"Prénom rectifié",last_name:"Démo",class_id:pupils[0].class_id,external_id:pupils[0].external_id},dpo);
+  assert.equal((await get("/gestion/dossier/"+id,dpo)).student.first_name,"Prénom rectifié");
+  await get("/gestion/dossier/"+id+"/export",dpo,403);
+  const device=(await call("/gestion/borne/activation",{method:"POST",body:{},session:cdi})).cookies[0];
+  assert.ok(device.startsWith("cdi_device="));
+  assert.equal((await get("/borne/reglages",device)).activated,true);
+  await get("/borne/recherche?q=Demo",device,404);
+  await get("/gestion/presences",device,401);
+  await post("/borne/entree",{student_id:id},device,400);
+  // Éviter de dépendre de l’heure réelle ou d’une fermeture programmée pendant l’essai.
+  const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
+  db.exec("DELETE FROM planning WHERE kind='fermeture'");
+  const arrival=await post("/borne/entree",{code},device);
+  assert.equal(Object.hasOwn(arrival,"first_name"),false);
+  const current=(await get("/gestion/presences",viewer)).rows[0];
+  assert.equal(arrival.expires_at,presenceDeadline(current.starts_at));
+  await patch("/gestion/presences/"+current.id,{minutes:60,expires_at:current.expires_at},viewer,403);
+  assert.equal((await patch("/gestion/presences/"+current.id,{minutes:60,expires_at:current.expires_at},cdi)).expires_at,current.expires_at+3600000);
+  await post("/borne/sortie",{code},device);
+  assert.equal((await get("/gestion/dossier/"+id)).visits[0].status,"sortie_enregistree");
+
+  const earlier=shiftDay(today,-2), start=parisMidnight(earlier)+8*3600000;
+  const insert=db.prepare("INSERT INTO visits (id,student_id,starts_at,expires_at) VALUES (?,?,?,?)");
+  for(const pupil of pupils) insert.run(crypto.randomUUID(),pupil.id,start,start+1800000);
+  assert.equal((await get("/gestion/dossier/"+id)).visits.at(-1).status,"creneau_expire");
+  assert.equal((await get("/gestion/presences",viewer)).rows.length,0);
+  const stats="/gestion/statistiques?from="+earlier+"&to="+earlier;
+  assert.equal((await get(stats)).visits,6);
+  const old=await post("/gestion/sauvegarde/export",{phrase:secret},exporter);
+  assert.equal(old.format,"cdi-encrypted");
+  assert.equal(Object.hasOwn(old,"tables"),false);
+  await post("/gestion/sauvegarde",{backup:old,phrase:"une phrase incorrecte"},restore,400);
+  const backupId=(await get("/gestion/sauvegarde",exporter)).rows[0].id;
+  await get("/gestion/sauvegarde/"+backupId,restore,403);
+  assert.equal((await get("/gestion/sauvegarde/"+backupId,exporter)).format,"cdi-encrypted");
+  if(host.kind==="php") {
+    const cli=join(host.web,host.prefix.slice(1),"app","maintenance.php");
+    assert.match(execFileSync(php,[cli,host.web],{env:host.env,encoding:"utf8"}),/purge terminée/);
+  } else {
+    await post("/gestion/confidentialite/purge",{});
+  }
+  assert.equal((await get("/gestion/dossier/"+id)).visits.length,1);
+  assert.equal((await get(stats)).visits,6);
+  assert.equal(db.prepare("SELECT visits FROM daily_statistics WHERE day=?").get(earlier).visits,6);
+  assert.ok((await get("/gestion/confidentialite")).last_success);
+  const requested=await get("/gestion/dossier/"+id+"/export");
+  assert.equal(requested.student.id,id);
+  assert.ok(requested.visits.every(visit=>visit.starts_at!==start));
+  await call("/gestion/dossier/"+id,{method:"DELETE",body:{confirmation:"EFFACER"},session:dpo});
+  await get("/gestion/dossier/"+id,dpo,404);
+  const preview=await post("/gestion/sauvegarde",{backup:old,phrase:secret},restore);
+  await post("/gestion/sauvegarde",{backup:old,phrase:secret,token:preview.token},restore);
+  await get("/gestion/dossier/"+id,dpo,404);
+  assert.equal((await get(stats)).visits,6);
+  assert.equal((await get("/borne/reglages",device)).activated,false);
+  const logs=(await get("/gestion/journal?area=confidentialite")).rows;
+  assert.ok(logs.some(row=>row.action==="Effacement validé"));
+  assert.ok(!JSON.stringify(logs).includes(code));
+  const recovery=await post("/gestion/sauvegarde/etat/export",{phrase:secret},exporter);
+  assert.equal(recovery.format,"cdi-encrypted");
+  db.close();
+  return {old,restore,recovery,id,stats};
+}
+
+async function verifyLayout(hosts) {
+  if(!process.env.TICECDI_BROWSER) return;
+  const {chromium}=await import(pathToFileURL(process.env.TICECDI_BROWSER).href);
+  const browser=await chromium.launch({executablePath:process.env.TICECDI_CHROME,headless:true,args:["--no-sandbox"]});
+  try {
+    mkdirSync("dist/layout",{recursive:true});
+    for(const host of hosts) {
+      for(const width of [1360,390]) {
+        const context=await browser.newContext({viewport:{width,height:850}});
+        const page=await context.newPage();
+        const errors=[];
+        page.on("pageerror", error=>errors.push(error.message));
+        const assets=async selector=>page.locator(selector).evaluate(el=>({loaded:el.complete&&el.naturalWidth>0,file:el.currentSrc}));
+        await page.goto(host.route("/"));
+        await page.locator(".home-subtitle").waitFor();
+        assert.equal(await page.locator(".home-subtitle").innerText(),"Présences, planning et fréquentation du CDI");
+        await page.waitForFunction(()=>[...document.images].every(img=>img.complete&&img.naturalWidth>0));
+        const top=await assets(".masthead img");
+        assert.equal(top.loaded,true);
+        assert.ok(top.file.endsWith(width===390?"ticecdi-icon.webp":"ticecdi-logo.webp"));
+        assert.ok((await assets(".tice-hero-logo img")).file.endsWith("ticecdi-logo.webp"));
+        assert.equal(await page.title(),"TiceCDI");
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+        assert.ok(await page.locator(".home-subtitle").isVisible());
+        await page.keyboard.press("Tab");
+        assert.ok(await page.evaluate(()=>document.activeElement.matches(":focus-visible")));
+        await page.screenshot({path:`dist/layout/${host.kind}-${width}.png`});
+        await page.goto(host.route("/borne"));
+        await page.locator("#kiosk-title").waitFor();
+        await page.waitForFunction(()=>document.querySelector(".masthead img")?.complete);
+        assert.ok((await assets(".masthead img")).file.endsWith("ticecdi-icon.webp"));
+        await page.goto(host.route("/gestion"));
+        await page.locator("#login-form").waitFor();
+        await page.waitForFunction(()=>document.querySelector(".masthead img")?.complete);
+        assert.equal((await assets(".masthead img")).loaded,true);
+        await context.addCookies([{name:"cdi_session",value:host.admin.split("=")[1],url:host.base}]);
+        for(const path of ["/gestion/planning","/gestion/statistiques","/gestion/confidentialite"]) {
+          await page.goto(host.route(path));
+          await page.locator(".masthead img").waitFor();
+          await page.waitForFunction(()=>document.querySelector(".masthead img")?.complete);
+          assert.equal((await assets(".masthead img")).loaded,true);
+          assert.ok(!page.url().includes("connexion"));
+          await page.locator("#main h1").waitFor();
+          if(path.endsWith("planning")) await page.locator(".accessible-planning").waitFor();
+        }
+        assert.deepEqual(errors,[]);
+        await context.close();
+      }
+    }
+  } finally {await browser.close();}
+}
+
+try {
+  exactExpiry();
+  await migration();
+  assert.deepEqual(csvRows("Nom;Prénom;Classe;Identifiant interne;INE;Mail\nNom;Prénom;5A;REF;NE PAS GARDER;mail"),[
+    {last_name:"Nom",first_name:"Prénom",class_name:"5A",external_id:"REF"},
+  ]);
+  const node=await serve("node"), phpHost=await serve("php");
+  const n=await exercise(node), p=await exercise(phpHost);
+  assert.ok((await node.post("/gestion/sauvegarde",{backup:p.old,phrase:secret},n.restore)).token);
+  assert.ok((await phpHost.post("/gestion/sauvegarde",{backup:n.old,phrase:secret},p.restore)).token);
+  const recoveryHost=await serve("php-reprise");
+  await recoveryHost.post("/gestion/sauvegarde/etat",{backup:n.recovery,phrase:secret});
+  const preview=await recoveryHost.post("/gestion/sauvegarde",{backup:n.old,phrase:secret});
+  await recoveryHost.post("/gestion/sauvegarde",{backup:n.old,phrase:secret,token:preview.token});
+  await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
+  assert.equal((await recoveryHost.get(n.stats)).visits,6);
+  await verifyLayout([node,phpHost]);
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence et logos.");
+} catch(error){
   console.error(output);
   throw error;
 } finally {
-  if (server && server.exitCode === null && server.kill()) {
-    await once(server, "exit");
-  }
-  rmSync(root, { recursive: true, force: true });
+  for(const server of sockets) if(server.exitCode===null&&server.kill()) await once(server,"exit");
+  rmSync(root,{recursive:true,force:true});
 }

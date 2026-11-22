@@ -112,7 +112,7 @@ export async function renderSessions(target,context) {
     const counters=[[present,"Présents à l’appel"],[absent,"Absents"],[waiting,"En attente"],[active,"Au CDI"]];
     target.innerHTML=section("Fiche d’appel",e(session.title+" · "+session.roster_name+" · "+dateTime(session.started_at)),
       `<a class="btn secondary" href="${urlFor(address)}">${icon("previous")} Toutes les séances</a>`+
-      button("Export CSV","download",'id="call-csv"')+
+      (context.canExport?button("Export CSV","download",'id="call-csv"'):"")+
       (session.ended_at?"":button("Garder des élèves au CDI","users",'id="keep-at-cdi"')+button("Terminer la séance","logout",'id="finish-call"',"primary")))
       +`<div class="metrics call-metrics">${counters.map(([n,title])=>`<div class="metric"><span class="icon-box">${icon("users")}</span><div><b>${n}</b><span>${title}</span></div></div>`).join("")}</div>
       <section class="panel table-panel"><div class="table-top"><h2>Appel de la séance</h2>${session.ended_at?pill("Terminée à "+time(session.ended_at)):pill("En cours","green")}</div>
@@ -122,9 +122,14 @@ export async function renderSessions(target,context) {
           <td>${row.active?pill("Présent au CDI","green"):row.arrived_at?e("Arrivée à "+time(row.arrived_at)):"—"}</td></tr>`;
       }))}</section>`;
     const exportButton=$("#call-csv",target);
-    exportButton.addEventListener("click",()=>csv("Appel-CDI-"+day(session.started_at).replaceAll("/","-")+".csv",[
-      ["Nom","Prénom","Classe","Statut","Arrivée"],...rows.map(row=>[row.last_name,row.first_name,row.class_name,statuses[row.status],row.arrived_at?time(row.arrived_at):""]),
-    ]));
+    exportButton?.addEventListener("click",async()=>{
+      try {
+        await gestion("export","POST",{type:"appel"});
+        csv("Appel-CDI-"+day(session.started_at).replaceAll("/","-")+".csv",[
+          ["Nom","Prénom","Classe","Statut","Arrivée"],...rows.map(row=>[row.last_name,row.first_name,row.class_name,statuses[row.status],row.arrived_at?time(row.arrived_at):""]),
+        ]);
+      } catch(error) {toast(error.message,"error");}
+    });
     $(".table-panel",target).addEventListener("change",async event=>{
       const select=event.target.closest("[data-student]");
       if(!select) return;
@@ -189,7 +194,7 @@ export async function renderGroups(target,{section,dialogForm,toast}) {
           if(term.length<2) return;
           delay=setTimeout(async()=>{
             try {
-              const result=await gestion("eleves?q="+encodeURIComponent(term));
+              const result=await gestion("eleves/recherche","POST",{q:term});
               if(version===seq){found=result.rows.slice(0,12);paint();if(!found.length)results.innerHTML=empty("Aucun élève trouvé.");}
             }catch(error){if(version===seq) results.innerHTML=notice(error.message,"error");}
           },180);
@@ -213,7 +218,7 @@ export async function renderGroups(target,{section,dialogForm,toast}) {
   });
 }
 
-const areaNames={planning:"Planning",horaires:"Horaires et borne",seances:"Fiches d’appel",groupes:"Groupes hors classe",annees:"Années scolaires",presences:"Présences",sauvegarde:"Sauvegardes"};
+const areaNames={confidentialite:"Données personnelles",planning:"Planning",horaires:"Horaires et borne",seances:"Fiches d’appel",groupes:"Groupes hors classe",annees:"Années scolaires",presences:"Présences",sauvegarde:"Sauvegardes"};
 const fieldNames={day:"Date",start_min:"Début",end_min:"Fin",title:"Titre",kind:"Type",class_id:"Référence de classe",group_id:"Référence de groupe",notes:"Notes",open:"Borne ouverte",second_hour:"Deuxième heure",hide_weekend:"Week-end masqué",capacity:"Capacité",use_hours:"Application des horaires",message:"Message",expiration:"Départ prévu",sauvegarde_du:"Date de la sauvegarde"};
 function auditData(raw) {
   if(!raw) return "—";
@@ -326,72 +331,79 @@ export async function renderYears(target,{section,toast,confirmDialog,readCsv}) 
   });
 }
 
-export function renderBackup(target,{section,toast,confirmDialog}) {
-  target.innerHTML=section("Sauvegarde et restauration","Télécharge une copie des données du CDI ou restaure une sauvegarde.")+
-    `<div class="stack">
-      <section class="panel"><div class="panel-body stack">
-        <h2>Télécharger une sauvegarde</h2>
-        <p>Le fichier JSON contient les élèves, les classes, les groupes, les présences, les exclusions, les fiches d’appel, le planning, les réglages, les années scolaires et le journal. Il contient des données nominatives. Les comptes du personnel et les mots de passe restent gérés dans l’établissement.</p>
-        <div class="button-row">${button("Télécharger le fichier JSON","download",'id="backup-download"',"primary")}</div>
-      </div></section>
-      <section class="panel"><div class="panel-body stack">
+export async function renderBackup(target,{section,toast,confirmDialog,canExport,canRestore}) {
+  const {rows}=await gestion("sauvegarde");
+  const field=(required)=>`<label class="field"><span>Phrase secrète de la sauvegarde</span><input type="password"
+    name="phrase" autocomplete="off" maxlength="512" ${required?'required minlength="12"':""}></label>`;
+  target.innerHTML=section("Sauvegarde et restauration","Les nouvelles sauvegardes sont chiffrées. Conservez votre phrase secrète séparément.")+
+    `<div class="stack">${canExport?`<section class="panel panel-body stack">
+      <h2>Créer une sauvegarde chiffrée</h2>
+      <form id="create-backup" class="stack">${field(true)}
+        <div class="button-row"><button type="submit" class="btn primary" value="backup">Créer et télécharger</button>
+        <button type="submit" class="btn secondary" value="guard">Exporter l’état de reprise</button></div></form>
+      <h3>Copies locales disponibles</h3>
+      <div id="backup-list">${rows.map(row=>`<p>${dateTime(row.created_at)} ·
+        ${button("Télécharger","download",`data-backup="${e(row.id)}"`)}</p>`).join("")||"Aucune copie locale."}</div>
+      </section>`:""}
+      ${canRestore?`<section class="panel panel-body stack">
         <h2>Restaurer une sauvegarde</h2>
-        <p>Vérifie le contenu du fichier avant de remplacer les données actuelles du CDI.</p>
+        <p>La purge et les suppressions validées seront réappliquées avant la réouverture de l’instance.</p>
         <form id="backup-form" class="stack">
-          <label class="field"><span>Fichier de sauvegarde du CDI</span><input type="file" name="file" accept=".json,application/json" required></label>
-          <div class="button-row"><button class="btn" type="submit">Analyser le fichier</button></div>
-        </form>
-        <div id="backup-preview" class="stack" aria-live="polite"></div>
-      </div></section>
-    </div>`;
-  const download=$("#backup-download",target);
-  const form=$("#backup-form",target);
-  const file=form.elements.file;
-  const analyze=$('[type="submit"]',form);
-  const preview=$("#backup-preview",target);
-  download.addEventListener("click",async()=>{
-    download.disabled=true;
-    try {
-      const backup=await gestion("sauvegarde");
-      saveFile("Sauvegarde-CDI-"+new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Paris"}).format(new Date(backup.created_at))+".json","application/json",JSON.stringify(backup));
-      toast("Sauvegarde téléchargée.");
-    } catch(error) {
-      toast(error.message,"error");
-    } finally {
-      download.disabled=false;
-    }
-  });
-  file.addEventListener("change",()=>{preview.replaceChildren();});
-  form.addEventListener("submit",async event=>{
+          <label class="field"><span>Fichier de sauvegarde</span><input type="file" name="file" accept=".json,application/json" required></label>
+          ${field(false)}
+          <div class="button-row"><button class="btn secondary" type="submit" value="backup">Analyser la sauvegarde</button>
+          <button class="btn secondary" type="submit" value="guard">Importer l’état de reprise</button></div>
+        </form><div id="backup-preview" class="stack" aria-live="polite"></div></section>`:""}</div>`;
+  const download=payload=>saveFile("TiceCDI-sauvegarde-"+new Date().toISOString().slice(0,10)+".json","application/json",JSON.stringify(payload));
+  $("#create-backup",target)?.addEventListener("submit",async event=>{
     event.preventDefault();
-    const selected=file.files[0];
-    if (!selected) return;
-    preview.textContent="Analyse en cours…";
-    analyze.disabled=file.disabled=true;
+    const form=event.currentTarget, submit=event.submitter;
+    submit.disabled=true;
     try {
-      if (selected.size>14_000_000) throw new Error("Le fichier dépasse la limite de 14 Mo.");
-      const raw=await selected.text();
+      if(submit.value==="guard") {
+        const payload=await gestion("sauvegarde/etat/export","POST",{phrase:form.elements.phrase.value});
+        saveFile("TiceCDI-etat-de-reprise.json","application/json",JSON.stringify(payload));
+        form.reset();
+        toast("État de reprise téléchargé.");
+        return;
+      }
+      download(await gestion("sauvegarde/export","POST",{phrase:form.elements.phrase.value}));
+      form.reset();
+      toast("Sauvegarde chiffrée téléchargée.");
+      await renderBackup(target,{section,toast,confirmDialog,canExport,canRestore});
+    } catch(error) {toast(error.message,"error");}
+    finally{submit.disabled=false;}
+  });
+  $("#backup-list",target)?.addEventListener("click",async event=>{
+    const id=event.target.closest("[data-backup]")?.dataset.backup;
+    if(id) try {download(await gestion("sauvegarde/"+id));} catch(error){toast(error.message,"error");}
+  });
+  const form=$("#backup-form",target), preview=$("#backup-preview",target);
+  form?.addEventListener("input",()=>preview.replaceChildren());
+  form?.addEventListener("submit",async event=>{
+    event.preventDefault();
+    const selected=form.elements.file.files[0], phrase=form.elements.phrase.value;
+    const submit=event.submitter;
+    submit.disabled=true;
+    preview.textContent="Analyse en cours…";
+    try {
+      if(!selected || selected.size>18_900_000) throw new Error("Sélectionnez une sauvegarde de 19 Mo maximum.");
       let backup;
-      try { backup=JSON.parse(raw); }
-      catch { throw new Error("Le fichier doit être une sauvegarde CDI au format JSON."); }
-      const {created_at,counts,token}=await gestion("sauvegarde","POST",{backup});
-      const rows=[["Élèves",counts.students],["Classes",counts.classes],["Groupes",counts.school_groups],
-        ["Passages",counts.visits],["Fiches d’appel",counts.attendance],["Exclusions",counts.exclusions],
-        ["Créneaux du planning",counts.planning],["Années scolaires",counts.school_year],["Entrées du journal",counts.audit_log]];
+      try {backup=JSON.parse(await selected.text());} catch {throw new Error("Fichier de sauvegarde invalide.");}
+      if(submit.value==="guard") {
+        preview.replaceChildren();
+        confirmDialog("Importer l’état de reprise","L’état de reprise réapplique les purges et effacements. Importez-le avant de restaurer une sauvegarde ancienne.",
+          "Importer",()=>gestion("sauvegarde/etat","POST",{backup,phrase}),"État de reprise importé.");
+        return;
+      }
+      const {created_at,counts,token}=await gestion("sauvegarde","POST",{backup,phrase});
       preview.innerHTML=`<h3>Sauvegarde du ${e(dateTime(new Date(created_at).valueOf()))}</h3>
-        ${table(["Données","Nombre"],rows.map(([label,count])=>`<tr><td>${label}</td><td>${count}</td></tr>`))}
-        <div class="button-row">${button("Restaurer cette sauvegarde","previous",'id="backup-restore"',"danger")}</div>`;
-      $("#backup-restore",preview).addEventListener("click",()=>confirmDialog(
-        "Restaurer les données du CDI",
-        "Le contenu de cette sauvegarde remplacera les données actuelles du CDI. Les comptes du personnel seront conservés.",
-        "Restaurer les données",
-        ()=>gestion("sauvegarde","POST",{backup,token}),
-        "Sauvegarde restaurée.",
-      ));
-    } catch(error) {
-      preview.innerHTML=notice(error.message,"error");
-    } finally {
-      analyze.disabled=file.disabled=false;
-    }
+        <p>${counts.students} élèves · ${counts.visits} passages · ${counts.planning} créneaux avant application de la purge.</p>
+        ${button("Restaurer cette sauvegarde","previous",'id="backup-restore"',"danger")}`;
+      $("#backup-restore",preview).addEventListener("click",()=>confirmDialog("Restaurer les données du CDI",
+        "Les données du fichier remplaceront les données actuelles. Les comptes, les réglages de confidentialité et les suppressions validées sont gérés localement.",
+        "Restaurer",()=>gestion("sauvegarde","POST",{backup,phrase,token}),"Sauvegarde restaurée."));
+    } catch(error) {preview.innerHTML=notice(error.message,"error");}
+    finally{submit.disabled=false;}
   });
 }

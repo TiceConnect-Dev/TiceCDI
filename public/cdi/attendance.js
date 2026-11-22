@@ -76,29 +76,16 @@ function barPanel(title, rows, caption) {
     <div class="stat-bars">${rows.map(([label,count])=>`<div class="stat-bar"><span>${e(label)}</span><progress max="${max}" value="${count}" aria-label="${e(label+" · "+count+" passage(s)")}"></progress><strong>${number(count)}</strong></div>`).join("")}</div></section>`;
 }
 function reportCsv(data) {
-  const cell=value=>{
-    const text=String(value??"");
-    const safe=typeof value==="string" && /^[=+\-@\t\r]/.test(text) ? "'"+text : text;
-    return '"'+safe.replace(/"/g,'""')+'"';
-  };
-  const rows=[
-    ["Type","Période ou groupe","Passages","Élèves distincts","Passages en classe"],
-    ["Période",data.from+" au "+data.to,data.visits,data.students,data.group_visits],
-    ["Indicateur","Pic simultané",data.peak],["Indicateur","Durée moyenne en minutes",Math.round(data.average)],
-    ["Indicateur","Sorties avant l’échéance",data.early_exits],
-    ...data.daily.map(row=>["Date",row.day,row.visits]),
-    ...data.weekdays.map((value,i)=>["Jour",names[i],value]),
-    ...data.hours.map((value,i)=>["Heure",String(i).padStart(2,"0")+" h",value]),
-    ...data.classes.map(row=>["Classe",row.name,row.visits,row.students,row.group_visits]),
-  ];
-  return "\uFEFF"+rows.map(row=>row.map(cell).join(";")).join("\r\n");
+  return "\uFEFFPériode;Passages;Durée moyenne (min)\r\n"+
+    [data.from+" au "+data.to,data.visits,Math.round(data.average)].join(";")+"\r\n"+
+    data.daily.map(row=>row.day+";"+row.visits).join("\r\n");
 }
 
-export async function renderStatistics(target,{section,toast}) {
+export async function renderStatistics(target,{section,toast,canExport}) {
   const end=today();
   const begin=shift(end,-29);
-  target.innerHTML=section("Statistiques de fréquentation","Analysez les passages enregistrés au CDI, sur la période de votre choix.",
-    button("Exporter en CSV","download",'id="stat-export" disabled'))
+  target.innerHTML=section("Statistiques de fréquentation","Les petits effectifs sont regroupés. Les totaux incluent les passages archivés.",
+    canExport?button("Exporter en CSV","download",'id="stat-export" disabled'):"")
     +`<form class="panel stat-filters" id="stat-form"><div class="button-row">
       ${button("Aujourd’hui","calendar",'data-range="today"')}${button("Cette semaine","","data-range=week")}${button("30 derniers jours","","data-range=month")}
     </div><label class="field"><span>Du</span><input name="from" type="date" max="${end}" required value="${begin}"></label>
@@ -108,44 +95,37 @@ export async function renderStatistics(target,{section,toast}) {
   let current, version=0;
   async function load() {
     const index=++version;
-    exportButton.disabled=true;
-    const query=new URLSearchParams(new FormData(form));
+    if(exportButton) exportButton.disabled=true;
     try {
-      const data=await api("/gestion/statistiques?"+query);
+      const data=await api("/gestion/statistiques?"+new URLSearchParams(new FormData(form)));
       if(index!==version) return;
       current=data;
-      exportButton.disabled=false;
-      const hours=data.hours.map((value,i)=>[String(i).padStart(2,"0")+" h",value]).filter(([label,count])=>count>0);
-      const dailyMap=new Map(data.daily.map(row=>[row.day,row.visits]));
-      const dailyCount=Math.round((Date.parse(data.to)-Date.parse(data.from))/86_400_000)+1;
-      const daily=Array.from({length:dailyCount},(_,i)=>{const date=shift(data.from,i);return [day(date),dailyMap.get(date)??0];});
-      result.innerHTML=`<div class="metrics stat-metrics">${[
-        metric("Passages",number(data.visits),"scan"), metric("Élèves différents",number(data.students),"users"),
-        metric("Durée moyenne observée",Math.round(data.average)+" min","clock"),
-        metric("Passages en classe",number(data.group_visits),"grid"),metric("Pic simultané",number(data.peak),"users"),
-        metric("Sorties avant l’échéance",number(data.early_exits),"logout"),
-      ].join("")}</div><div class="stat-layout">
-        ${barPanel("Par jour de la semaine",data.weekdays.map((total,i)=>[names[i],total]),"Nombre d’arrivées du lundi au dimanche")}
-        ${barPanel("Par heure d’arrivée",hours.length?hours:[["Aucune arrivée",0]],"Heure locale de Paris")}
-        ${barPanel("Évolution jour par jour",daily,"Passages par date, y compris les jours à zéro")}
-        <section class="panel table-panel stat-panel"><div class="table-top"><h2>Par classe</h2></div>${data.classes.length?`<div class="scroll-table stat-class-table"><table>
-          <thead><tr><th scope="col">Classe</th><th scope="col">Passages</th><th scope="col">Élèves distincts</th><th scope="col">En groupe</th></tr></thead>
-          <tbody>${data.classes.map(row=>`<tr><td><strong>${e(row.name)}</strong></td><td>${number(row.visits)}</td><td>${number(row.students)}</td><td>${number(row.group_visits)}</td></tr>`).join("")}</tbody></table></div>`
-          :'<p class="empty">Aucun passage sur cette période.</p>'}</section></div>`;
+      if(data.hidden) {result.innerHTML=notice("Sur cette période, le seuil de "+data.threshold+" élèves distincts n’est pas atteint.");return;}
+      if(exportButton) exportButton.disabled=false;
+      result.innerHTML=`<div class="metrics stat-metrics">${metric("Passages",number(data.visits),"scan")}
+        ${metric("Durée moyenne observée",Math.round(data.average)+" min","clock")}</div>`+
+        (data.daily.length ? barPanel("Passages par jour",data.daily.map(row=>[day(row.day),row.visits]),"Totaux agrégés de l’établissement")
+          : notice("Seul le total de la période est affiché pour regrouper les petits effectifs."));
     } catch(error) {
       if(index!==version) return;
       result.innerHTML=notice(error.message,"error");
       toast(error.message,"error");
     }
   }
-  form.addEventListener("submit",event=>{event.preventDefault(); load();});
+  form.addEventListener("submit",event=>{event.preventDefault();load();});
   form.addEventListener("click",event=>{
     const range=event.target.closest("[data-range]")?.dataset.range;
-    if(!range) return;
-    form.elements.to.value=end;
+    if(!range)return;
     form.elements.from.value=range==="today"?end:range==="week"?weekStart(end):begin;
+    form.elements.to.value=end;
     load();
   });
-  exportButton.addEventListener("click",()=>{if(current) saveFile("frequentation-CDI-"+current.from+"-"+current.to+".csv","text/csv;charset=utf-8",reportCsv(current));});
+  exportButton?.addEventListener("click",async()=>{
+    try {
+      if(!current || current.hidden) return;
+      await api("/gestion/export","POST",{type:"statistiques"});
+      saveFile("TiceCDI-frequentation-"+current.from+"-"+current.to+".csv","text/csv;charset=utf-8",reportCsv(current));
+    } catch(error) {toast(error.message,"error");}
+  });
   await load();
 }

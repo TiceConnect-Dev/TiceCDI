@@ -41,6 +41,15 @@ export const time = (value) => timeFormat.format(value);
 export const day = (value) => dayFormat.format(new Date(typeof value === "string" ? value + "T12:00:00Z" : value));
 export const today = () => isoFormat.format(new Date());
 export const notice = (message, tone = "", symbol) => `<div class="notice ${tone}">${icon(symbol ?? (tone === "error" ? "warning" : tone === "success" ? "check" : "info"))}<div>${e(message)}</div></div>`;
+const wordmark = new URL("./ticecdi-logo.webp", import.meta.url);
+const mark = new URL("./ticecdi-icon.webp", import.meta.url);
+export function brand(square=false,hero=false) {
+  if(square) return `<img class="tice-brand-icon" src="${mark}" width="256" height="256" alt="TiceCDI">`;
+  return `<picture class="${hero?"tice-hero-logo":"tice-wordmark"}">
+    ${hero?"":`<source media="(max-width: 560px)" srcset="${mark}">`}
+    <img src="${wordmark}" width="1200" height="376" alt="${hero?"TiceCDI — Une application de TiceConnect":"TiceCDI"}"></picture>`;
+}
+
 const phpEntry = globalThis.document?.querySelector('meta[name="cdi-entry"]')?.content;
 
 export function urlFor(path) {
@@ -106,7 +115,7 @@ export function csvRows(text) {
   const last = index("nom", "nomdefamille", "last", "lastname");
   const first = index("prenom", "prenoms", "first", "firstname");
   const group = index("classe", "fullclass", "classname", "division");
-  const reference = index("id", "identifiant", "identifiantexterne", "ine", "numeroeleve", "externalid");
+  const reference = index("id", "identifiantinterne", "identifiant", "identifiantexterne", "numeroeleve", "externalid");
   if (last < 0 || first < 0 || group < 0) throw new Error("Le fichier doit contenir les colonnes Nom, Prénom et Classe sur la première ligne.");
   if (grid.some((fields) => fields.some(Boolean) && fields.length !== headers.length)) throw new Error("Certaines lignes n’ont pas le même nombre de colonnes que l’en-tête.");
   return grid.filter((fields) => fields.some(Boolean)).map((fields) => ({

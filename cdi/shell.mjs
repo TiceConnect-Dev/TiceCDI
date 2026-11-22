@@ -1,10 +1,9 @@
 export function page(request) {
   const path = new URL(request.url).pathname;
-  if (!(path === "/" || path === "/borne" || /^\/planning-ecran\/?$/.test(path) || path === "/connexion" || /^\/gestion(?:\/[a-z-]+)?\/?$/.test(path))) return null;
+  if (!(path === "/" || path === "/borne" || path === "/notice" || /^\/planning-ecran\/?$/.test(path) || path === "/connexion" || /^\/gestion(?:\/[a-z-]+)?\/?$/.test(path))) return null;
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405 });
-  const title = path.startsWith("/planning-ecran") ? "Planning du CDI" : path.startsWith("/gestion") ? "Espace de gestion" : path === "/connexion" ? "Connexion" : "Accueil du CDI";
   return new Response(`<!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#000091"><meta name="description" content="Borne d’accueil et gestion des présences du CDI de la cité scolaire Camille Claudel."><title>${title} | Gestion du CDI</title><link rel="icon" href="/cdi/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/cdi/cdi.css"><script type="module" src="/cdi/app.js"></script></head><body><a class="skip" href="#main">Aller au contenu</a><div id="app"><p class="loading" role="status">Chargement du CDI…</p></div></body></html>`, {
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#000091"><meta name="description" content="Présences, planning et fréquentation du CDI"><title>TiceCDI</title><link rel="icon" href="/cdi/ticecdi-icon.webp" type="image/webp"><link rel="stylesheet" href="/cdi/cdi.css"><script type="module" src="/cdi/app.js"></script></head><body><a class="skip" href="#main">Aller au contenu</a><div id="app"><p class="loading" role="status">Chargement du CDI…</p></div></body></html>`, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-cache",

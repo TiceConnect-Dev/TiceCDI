@@ -189,8 +189,8 @@ function changeCall(Store $db, array $me, string $id, array $body, int $clock): 
         }
     }
     $db->run('UPDATE attendance_members SET status=? WHERE attendance_id=? AND student_id=?', $status, $id, $student);
-    audit($db, $me, 'seances', 'Correction d’un appel', $member['title'],
-        ['élève' => $member['first_name'] . ' ' . $member['last_name'], 'statut' => $member['status']], ['statut' => $status]);
+    audit($db, $me, 'seances', 'Correction d’un appel', 'Fiche d’appel',
+        ['statut' => $member['status']], ['statut' => $status]);
     return sessionDetail($db, $id, $clock);
 }
 

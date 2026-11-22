@@ -165,7 +165,7 @@ export async function changeCall(m, me, ident, body, clock, fail) {
   const args=arriving ? [...openArgs,member.student_id,day,member.student_id,clock] : [];
   statements.push(
     m.stmt(`UPDATE attendance_members SET status=? WHERE attendance_id=? AND student_id=? ${guard}`,status,ident,member.student_id,...args),
-    audit(m,me,"seances","Correction d’un appel",member.title,{ élève:member.first_name+" "+member.last_name, statut:member.status },{ statut:status },true),
+    audit(m,me,"seances","Correction d’un appel","Fiche d’appel",{ statut:member.status },{ statut:status },true),
   );
   const outcome=await m.batch(statements);
   if (!outcome.at(-2).meta.changes) fail(409,"L’arrivée n’a pas été enregistrée. Vérifiez la jauge, l’exclusion ou la fiche de l’élève.");

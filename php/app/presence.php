@@ -31,12 +31,13 @@ function kioskCheckIn(Store $db, array $data, int $clock): array
     if ($reason !== '') {
         fail(409, $reason);
     }
-    $code = clean($data['code'] ?? null);
-    $field = $code === '' ? 'id' : 'code';
-    $lookup = $code === '' ? clean($data['student_id'] ?? null) : strtoupper($code);
-    $person = $db->one('SELECT ' . PERSON_COLUMNS . ' ' . PEOPLE_JOIN . " WHERE s.active=1 AND s.$field=?", substr($lookup, 0, 80));
+    $code = strtoupper(clean($data['code'] ?? null));
+    if (!preg_match('/^CDI[0-9A-F]{10}$/D', $code)) {
+        fail(400, 'Scanne ou saisis le code de ta carte CDI.');
+    }
+    $person = $db->one('SELECT s.id,c.name AS class_name ' . PEOPLE_JOIN . ' WHERE s.active=1 AND s.code=?', $code);
     if (!$person) {
-        fail(404, 'Élève introuvable. Vérifie ton code ou recherche ton nom.');
+        fail(404, 'Carte introuvable. Vérifie le code ou adresse-toi au personnel.');
     }
     $id = $person['id'];
     if (deniedStudent($db, $id, parisClock($clock)['day'])) {
@@ -44,14 +45,14 @@ function kioskCheckIn(Store $db, array $data, int $clock): array
     }
     $existing = activePresence($db, $id, $clock);
     if ($existing) {
-        return ['first_name' => $person['first_name'], 'expires_at' => $existing['expires_at'], 'already' => true];
+        return ['expires_at' => $existing['expires_at'], 'already' => true];
     }
     if (occupancy($db, $clock)['places'] === 0) {
         fail(409, 'Le CDI est complet pour le moment.');
     }
     $expiry = fullHour($clock, ($data['two_hours'] ?? null) === true && $settings['second_hour'] ? 2 : 1);
     addPresence($db, $id, $clock, $expiry, 'individuel', $person['class_name']);
-    return ['first_name' => $person['first_name'], 'expires_at' => $expiry, 'already' => false];
+    return ['expires_at' => $expiry, 'already' => false];
 }
 
 function presenceResource(Store $db, string $method, ?string $id, array $me, int $clock): array
@@ -65,18 +66,19 @@ function presenceResource(Store $db, string $method, ?string $id, array $me, int
     }
     need($me, 'sorties');
     if ($method === 'DELETE' && $id !== null) {
-        $db->run('UPDATE visits SET ended_at=? WHERE id=? AND ended_at IS NULL AND expires_at>?', $clock, $id, $clock);
+        if (!$db->run('UPDATE visits SET ended_at=? WHERE id=? AND ended_at IS NULL AND expires_at>?', $clock, $id, $clock)) {
+            fail(409,'Cette présence est déjà terminée ou son créneau a expiré.');
+        }
         return ['ok' => true];
     }
     if ($method === 'PATCH' && $id !== null) {
         $data = requestData();
         $minutes = $data['minutes'] ?? null;
         $expected = $data['expires_at'] ?? null;
-        if (!in_array($minutes, [15, 30], true) || !is_int($expected)) {
-            fail(400, 'Choisissez une prolongation de 15 ou 30 minutes.');
+        if (!in_array($minutes, [15, 30, 60], true) || !is_int($expected)) {
+            fail(400, 'Choisissez une prolongation de 15, 30 ou 60 minutes.');
         }
-        $visit = $db->one('SELECT v.expires_at,v.ended_at,s.first_name,s.last_name
-            FROM visits v JOIN students s ON s.id=v.student_id WHERE v.id=?', $id);
+        $visit = $db->one('SELECT expires_at,ended_at FROM visits WHERE id=?', $id);
         if (!$visit || $visit['ended_at'] !== null || $visit['expires_at'] <= $clock) {
             fail(409, 'Cette présence est terminée.');
         }
@@ -87,8 +89,7 @@ function presenceResource(Store $db, string $method, ?string $id, array $me, int
         if (!$db->run('UPDATE visits SET expires_at=? WHERE id=? AND ended_at IS NULL AND expires_at>?', $updated, $id, clockMs())) {
             fail(409, 'Cette présence est terminée.');
         }
-        audit($db, $me, 'presences', 'Prolongation de présence', $visit['first_name'] . ' ' . $visit['last_name'],
-            ['expiration' => $expected], ['expiration' => $updated]);
+        audit($db, $me, 'presences', 'Prolongation de présence', 'Présence', null, null);
         return ['expires_at' => $updated];
     }
     fail(404, 'Action introuvable.');

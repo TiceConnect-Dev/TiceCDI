@@ -10,7 +10,7 @@ on:
       version:
         description: Version à publier au format vX.Y.Z
         required: true
-        default: v1.1.0
+        default: v1.2.0
 
 permissions:
   contents: write
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       IMAGE: ghcr.io/xeros59/gestion-cdi
-      VERSION: ${{ inputs.version || 'v1.1.0' }}
+      VERSION: ${{ inputs.version || 'v1.2.0' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -47,7 +47,18 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y php8.3-cli php8.3-sqlite3 php8.3-intl php8.3-mbstring
           bash scripts/build-php.sh
-          PHP_BIN=/usr/bin/php8.3 node scripts/smoke-php.mjs dist/Gestion-CDI-PHP.zip
+          npm install --prefix "$RUNNER_TEMP/tice-layout" --no-save --ignore-scripts playwright-core@1.58.2
+          TICECDI_BROWSER="$RUNNER_TEMP/tice-layout/node_modules/playwright-core/index.mjs" \
+            TICECDI_CHROME="$(command -v google-chrome)" \
+            PHP_BIN=/usr/bin/php8.3 node scripts/smoke-php.mjs dist/TiceCDI-PHP.zip
+
+      - name: Conserver les captures de vérification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ticecdi-rendu
+          path: dist/layout/
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Construire et tester l’image Docker
         run: |
@@ -62,19 +73,24 @@ jobs:
             docker logs "$container"
             exit 1
           fi
-          docker image save "$IMAGE:$VERSION" "$IMAGE:latest" | gzip > dist/Gestion-CDI-Docker-amd64.tar.gz
+          curl --fail --silent --show-error http://127.0.0.1:19080/ | grep -q '<title>TiceCDI</title>'
+          for asset in ticecdi-logo.webp ticecdi-icon.webp; do
+            curl --fail --silent --show-error "http://127.0.0.1:19080/cdi/$asset" | cmp "public/cdi/$asset" -
+          done
+          docker exec "$container" cat /app/LICENSE | cmp LICENSE -
+          docker image save "$IMAGE:$VERSION" "$IMAGE:latest" | gzip > dist/TiceCDI-Docker-amd64.tar.gz
 
       - name: Publier les téléchargements sur GitHub
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd dist
-          sha256sum Gestion-CDI-PHP.zip Gestion-CDI-Docker-amd64.tar.gz > SHA256SUMS.txt
+          sha256sum TiceCDI-PHP.zip TiceCDI-Docker-amd64.tar.gz > SHA256SUMS.txt
           if ! gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Gestion du CDI $VERSION" \
+              --title "TiceCDI $VERSION" \
               --notes "Archive PHP pour hébergement classique et image Docker Linux amd64 pour Portainer." \
-              Gestion-CDI-PHP.zip Gestion-CDI-Docker-amd64.tar.gz SHA256SUMS.txt
+              TiceCDI-PHP.zip TiceCDI-Docker-amd64.tar.gz SHA256SUMS.txt
           else
             tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$VERSION" --jq .sha)
             if [[ "$tagged" != "$GITHUB_SHA" ]]; then
@@ -82,7 +98,7 @@ jobs:
               exit 1
             fi
             gh release upload "$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
-              Gestion-CDI-PHP.zip Gestion-CDI-Docker-amd64.tar.gz SHA256SUMS.txt
+              TiceCDI-PHP.zip TiceCDI-Docker-amd64.tar.gz SHA256SUMS.txt
           fi
 
       - name: Publier l’image sur GitHub Container Registry

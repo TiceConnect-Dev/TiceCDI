@@ -1,12 +1,14 @@
+import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maintain, maxEnvelopeBytes, noticeData,
+  privacySettings, privateStatistics, publicPlanning, recoveryState, recoveryStatements, scrubLegacy, studentFile, taskStatement } from "./privacy.mjs";
 import { audit, auditRows } from "./audit.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
 import { archiveRows, rollover, years } from "./school-year.mjs";
-import { changeSlot, dayLength, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeHours, openingHours, parisClock, presenceDeadline, saveOpeningHours, shiftDay, validDay, weekday, weekPlanning } from "./calendar.mjs";
-import { classRoster, groupArrival, statistics } from "./operations.mjs";
+import { changeSlot, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeHours, openingHours, parisClock, presenceDeadline, saveOpeningHours, shiftDay, validDay, weekday, weekPlanning } from "./calendar.mjs";
+import { classRoster, groupArrival } from "./operations.mjs";
 
-export const RIGHTS = ["presence", "sorties", "exclusions", "eleves", "classes", "import", "badges", "comptes", "arrivees", "planning", "statistiques", "groupes"];
+export const RIGHTS = ["presence", "sorties", "exclusions", "eleves", "classes", "import", "badges", "comptes", "arrivees", "planning", "statistiques", "groupes", "borne", "export", "restaurer", "donnees"];
 const encoder = new TextEncoder();
 const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" });
 const personColumns = "s.id,s.first_name,s.last_name,c.name AS class_name,s.class_id";
@@ -76,11 +78,11 @@ async function payload(request, maxBytes = 2_000_000) {
   } catch { /* Report invalid data below. */ }
   fail(400, "Données invalides.");
 }
-function cookie(request, token, maxAge) {
+function cookie(request, token, maxAge, name = "cdi_session") {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `cdi_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+  return `${name}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
 }
-function model(db) {
+export function model(db) {
   const stmt = (sql, ...params) => db.prepare(sql).bind(...params);
   return {
     stmt,
@@ -279,40 +281,42 @@ async function dispatch(request, env, options) {
     if (token) await m.run("DELETE FROM sessions WHERE token=?", await digest(token));
     return json({ ok: true }, 200, { "Set-Cookie": cookie(request, "", 0) });
   }
-  if (method === "GET" && path === "/api/borne/reglages") {
-    const closure = kioskClosure(clock);
-    const [settings, state, gauge] = await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock)]);
-    return json({ ...settings, ...gauge, open:!state.reason, reason:state.reason });
-  }
-  if (method === "GET" && path === "/api/planning") {
-    const start = url.searchParams.get("week");
+  if (method==="GET" && path==="/api/notice") return json(noticeData(await privacySettings(m)));
+  if (method==="GET" && path==="/api/planning") {
+    if (!(await privacySettings(m)).public_planning) fail(403,"L’écran de planning sans connexion est désactivé.");
+    const start=url.searchParams.get("week");
     if (!validDay(start) || weekday(start)!==1) fail(400,"Sélectionnez un lundi.");
-    const closure=kioskClosure(clock);
-    const [planned,gauge,state]=await Promise.all([weekPlanning(m,start),occupancy(m,clock),m.one(closure.sql,...closure.params)]);
-    return json({ ...planned, ...gauge, open:!state.reason, reason:state.reason });
+    const planned=await weekPlanning(m,start);
+    return json({...planned,rows:publicPlanning(planned.rows)});
   }
-  if (method === "GET" && path === "/api/borne/recherche") {
-    const query = words(url.searchParams.get("q")?.slice(0, 90)).split(" ").filter(Boolean).slice(0, 8);
-    if (query.join("").length < 3) return json({ results: [] });
-    await throttle(m, "search:" + client, 140);
-    const matching = query.map(() => "AND instr(s.search_name,?)>0").join(" ");
-    const closure = kioskClosure(clock);
-    const rows = await m.list(`${peopleSelect} WHERE s.active=1
-      AND (${closure.sql})=''
-      ${matching} ORDER BY s.last_name,s.first_name,c.name LIMIT 7`, ...closure.params,...query);
-    return json({ results: rows.map(({ class_id, ...row }) => row) });
-  }
-  if (method === "POST" && path === "/api/borne/entree") {
-    await throttle(m, "checkin:" + client, 90);
-    const data = await payload(request);
-    const byCode = Boolean(clean(data.code));
-    const target = clean(byCode ? data.code : data.student_id).slice(0, 80);
-    const person = await m.one(`${peopleSelect} WHERE s.active=1 AND s.${byCode ? "code" : "id"}=?`, byCode ? target.toUpperCase() : target);
+  if (path.startsWith("/api/borne/")) {
+    const token=request.headers.get("cookie")?.match(/(?:^|;\s*)cdi_device=([a-f0-9]{64})(?:;|$)/)?.[1];
+    const key=token ? await digest(token) : "";
+    const device=await m.one(`SELECT k.token FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
+      WHERE k.token=? AND k.expires_at>? AND (a.admin=1 OR EXISTS(SELECT 1 FROM json_each(a.permissions) WHERE value='borne'))`,key,clock);
+    if (method==="GET" && path==="/api/borne/reglages") {
+      if (!device) return json({activated:false});
+      const closure=kioskClosure(clock);
+      const [settings,state,gauge]=await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock)]);
+      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason});
+    }
+    if (!device) fail(403,"Ce poste doit être activé par le personnel.");
+    if (method!=="POST" || !["/api/borne/entree","/api/borne/sortie"].includes(path)) fail(404,"Action introuvable.");
+    await throttle(m,"checkin:"+key,90);
+    const data=await payload(request);
+    const code=clean(data.code).toUpperCase();
+    if (!/^CDI[0-9A-F]{10}$/.test(code)) fail(400,"Scanne ou saisis le code de ta carte CDI.");
+    const person=await m.one(`SELECT s.id,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
+      WHERE s.active=1 AND s.code=?`,code);
+    if (path.endsWith("/sortie")) {
+      if (person) await m.run("UPDATE visits SET ended_at=? WHERE student_id=? AND ended_at IS NULL AND expires_at>?",clock,person.id,clock);
+      return json({ok:true});
+    }
     const closure = kioskClosure(clock);
     if (!person) {
       const {reason} = await m.one(closure.sql,...closure.params);
       if (reason) fail(409,reason);
-      fail(404, "Élève introuvable. Vérifie ton code ou recherche ton nom.");
+      fail(404, "Carte introuvable. Vérifie le code ou adresse-toi au personnel.");
     }
     const day = today();
     const [inserted, status, existing, closed, seats] = await m.batch([
@@ -334,12 +338,84 @@ async function dispatch(request, env, options) {
     if (status.results.length) fail(403, "L’entrée n’a pas pu être enregistrée. Adresse-toi à l’accueil du CDI.");
     if (!existing.results.length && seats.results[0].places===0) fail(409,"Le CDI est complet pour le moment.");
     if (!existing.results.length) fail(409, "L’entrée n’a pas pu être enregistrée. Réessaie.");
-    return json({ first_name: person.first_name, expires_at: existing.results[0].expires_at, already: !changes(inserted) });
+    return json({ expires_at: existing.results[0].expires_at, already: !changes(inserted) });
   }
 
   const me = await authenticate(m, request);
   if (!me) fail(401, "Connectez-vous pour accéder à cet espace.");
   const need = (...rights) => { if (!rights.some((right) => me.rights.includes(right))) fail(403, "Votre compte ne dispose pas de cet accès."); };
+  if (path==="/api/gestion/borne/activation" && method==="POST") {
+    need("borne");
+    const token=random(32);
+    const maxAge=12*3600;
+    await m.batch([
+      m.stmt("INSERT INTO kiosk_devices VALUES (?,?,?)",await digest(token),me.id,clock+maxAge*1000),
+      audit(m,me,"confidentialite","Activation d’un poste","Borne",null,null),
+    ]);
+    return json({ok:true},200,{"Set-Cookie":cookie(request,token,maxAge,"cdi_device")});
+  }
+  if (path==="/api/gestion/borne/activation" && method==="DELETE") {
+    need("borne");
+    await m.batch([
+      me.admin ? m.stmt("DELETE FROM kiosk_devices") : m.stmt("DELETE FROM kiosk_devices WHERE account_id=?",me.id),
+      audit(m,me,"confidentialite","Révocation des activations","Borne",null,null),
+    ]);
+    return json({ok:true});
+  }
+  if (path==="/api/gestion/confidentialite" && ["GET","PATCH"].includes(method)) {
+    if (!me.admin) fail(403,"Cette rubrique est réservée aux administrateurs.");
+    if (method==="PATCH") return json(await changePrivacy(m,me,await payload(request),fail));
+    return json({...await privacySettings(m),...await m.one("SELECT last_success FROM privacy_state WHERE id=1")});
+  }
+  if (path==="/api/gestion/confidentialite/purge" && method==="POST") {
+    if (!me.admin) fail(403,"Cette rubrique est réservée aux administrateurs.");
+    return json(await maintain(m,clock));
+  }
+  if (path==="/api/gestion/dossier/recherche" && method==="POST") {
+    need("donnees");
+    const input=clean((await payload(request)).q).slice(0,90), query=words(input);
+    if (query.length<3) return json({rows:[]});
+    const tokens=query.split(" ").slice(0,8);
+    const filter=tokens.map(()=> "instr(s.search_name,?)>0").join(" AND ");
+    return json({rows:await m.list(`${peopleSelect} WHERE (${filter}) OR s.external_id=? ORDER BY s.last_name,s.first_name LIMIT 20`,...tokens,input)});
+  }
+  const individual=path.match(/^\/api\/gestion\/dossier\/([a-f0-9-]+)(\/export)?$/);
+  if (individual) {
+    need("donnees");
+    const [,student,file]=individual;
+    if (file && method==="GET") {
+      need("export");
+      const data=await studentFile(m,student,fail);
+      await m.batch([audit(m,me,"confidentialite","Export d’un dossier","Dossier individuel",null,null)]);
+      return json(data,200,{"Content-Disposition":'attachment; filename="Dossier-eleve.json"'});
+    }
+    if (!file && method==="GET") return json(await studentFile(m,student,fail));
+    if (!file && method==="PATCH") {
+      const result=await saveStudent(m,await payload(request),student);
+      await m.batch([
+        m.stmt("UPDATE attendance_members SET first_name=(SELECT first_name FROM students WHERE id=?),last_name=(SELECT last_name FROM students WHERE id=?) WHERE student_id=?",student,student,student),
+        m.stmt("UPDATE school_year_members SET first_name=(SELECT first_name FROM students WHERE id=?),last_name=(SELECT last_name FROM students WHERE id=?) WHERE student_id=?",student,student,student),
+        audit(m,me,"confidentialite","Rectification d’un dossier","Dossier individuel",null,null),
+      ]);
+      return json(result);
+    }
+    if (!file && method==="DELETE") {
+      if ((await payload(request)).confirmation!=="EFFACER") fail(400,"Confirmez l’effacement.");
+      await studentFile(m,student,fail);
+      await m.batch([taskStatement(m,await privacySettings(m),clock,"erase",student),
+        audit(m,me,"confidentialite","Effacement validé","Dossier individuel",null,null)]);
+      return json({ok:true});
+    }
+  }
+  if (path==="/api/gestion/export" && method==="POST") {
+    need("export");
+    const {type}=await payload(request);
+    const permissions={planning:"planning",appel:"arrivees",statistiques:"statistiques",badges:"badges",archives:"admin"};
+    if (!Object.hasOwn(permissions,type)) fail(400,"Export inconnu.");
+    if (type==="archives" ? !me.admin : !me.rights.includes(permissions[type])) fail(403,"Votre compte ne dispose pas de cet accès.");
+    await m.batch([audit(m,me,"confidentialite","Export",type,null,null)]);
+    return json({ok:true});
+  }
   const match = /^\/api\/gestion\/(eleves|classes|presences|exclusions|comptes)(?:\/([a-f0-9-]+))?$/.exec(path);
   const resource = match?.[1];
   const itemId = match?.[2];
@@ -382,13 +458,9 @@ async function dispatch(request, env, options) {
     if (!classId || !await m.one("SELECT id FROM classes WHERE id=?",classId)) fail(404,"Sélectionnez une classe existante.");
     return json({ rows:await classRoster(m,classId) });
   }
-  if (path === "/api/gestion/statistiques" && method === "GET") {
+  if (path==="/api/gestion/statistiques" && method==="GET") {
     need("statistiques");
-    const from = url.searchParams.get("from"), to = url.searchParams.get("to");
-    if (!validDay(from) || !validDay(to) || from>to || to>parisClock(clock).day || Date.parse(to)-Date.parse(from)>=366*dayLength) {
-      fail(400,"Choisissez une période de 366 jours maximum qui se termine aujourd’hui ou plus tôt.");
-    }
-    return json(await statistics(m,from,to,clock));
+    return json(await privateStatistics(m,url.searchParams.get("from"),url.searchParams.get("to"),clock,fail));
   }
   if (path === "/api/gestion/planning" && method === "GET") {
     need("planning");
@@ -443,20 +515,58 @@ async function dispatch(request, env, options) {
     if (!finish && method==="GET") return json(await sessionDetail(m,id,clock,fail));
     if (!finish && method==="PATCH") return json(await changeCall(m,me,id,await payload(request),clock,fail));
   }
-  if (path === "/api/gestion/sauvegarde" && ["GET", "POST"].includes(method)) {
-    if (!me.admin) fail(403, "Les sauvegardes sont réservées aux administrateurs.");
-    if (method === "GET") {
-      const backup = await exportBackup(m, clock, fail);
-      return jsonResponse(backup, 200, { "Content-Disposition": `attachment; filename="Sauvegarde-CDI-${parisClock(clock).day}.json"` });
-    }
-    const { backup, token } = await payload(request, maxBackupBytes + 1024);
-    const summary = inspectBackup(backup, fail);
-    const serialized = JSON.stringify(backup);
-    if (encoder.encode(serialized).byteLength > maxBackupBytes) fail(413, "Le fichier est trop volumineux.");
-    const fingerprint = await digest(serialized);
-    if (token === undefined) return json({ ...summary, token:fingerprint });
-    if (!equal(token, fingerprint)) fail(409, "Analysez à nouveau le fichier avant de confirmer la restauration.");
-    await restoreBackup(m, me, backup, summary, fail);
+  if (path==="/api/gestion/sauvegarde" && method==="GET") {
+    need("export","restaurer");
+    return json({rows:me.rights.includes("export") ? await m.list("SELECT id,created_at FROM encrypted_backups ORDER BY created_at DESC,id DESC") : []});
+  }
+  if (path==="/api/gestion/sauvegarde/export" && method==="POST") {
+    need("export");
+    const {phrase}=await payload(request);
+    const envelope=await encryptBackup(await exportBackup(m,clock,fail),phrase,fail);
+    await m.batch([
+      m.stmt("INSERT INTO encrypted_backups VALUES (?,?,?)",id(),clock,JSON.stringify(envelope)),
+      m.stmt(`DELETE FROM encrypted_backups WHERE id NOT IN
+        (SELECT id FROM encrypted_backups ORDER BY created_at DESC,id DESC LIMIT (SELECT backup_limit FROM privacy_settings WHERE id=1))`),
+      audit(m,me,"sauvegarde","Export chiffré","Sauvegarde",null,null),
+    ]);
+    return json(envelope);
+  }
+  if (path==="/api/gestion/sauvegarde/etat/export" && method==="POST") {
+    need("export");
+    const {phrase}=await payload(request);
+    const envelope=await encryptBackup(JSON.stringify({format:"cdi-recovery",privacy:await recoveryState(m)}),phrase,fail);
+    await m.batch([audit(m,me,"sauvegarde","Export de l’état de reprise","Historique des purges et effacements",null,null)]);
+    return json(envelope);
+  }
+  if (path==="/api/gestion/sauvegarde/etat" && method==="POST") {
+    need("restaurer");
+    const {backup:encoded,phrase}=await payload(request,maxEnvelopeBytes);
+    const file=await decryptBackup(encoded,phrase,fail);
+    if (file.format!=="cdi-recovery" || !file.privacy) fail(400,"Ce fichier n’est pas un état de reprise.");
+    await m.batch([...recoveryStatements(m,checkedPrivacyState(file.privacy,fail),clock,await privacySettings(m)),
+      audit(m,me,"sauvegarde","Import de l’état de reprise","Historique des purges et effacements",null,null)]);
+    return json({ok:true});
+  }
+  const backupId=path.match(/^\/api\/gestion\/sauvegarde\/([a-f0-9-]+)$/)?.[1];
+  if (backupId && method==="GET") {
+    need("export");
+    const saved=await m.one("SELECT envelope FROM encrypted_backups WHERE id=?",backupId);
+    if (!saved) fail(404,"Sauvegarde indisponible.");
+    await m.batch([audit(m,me,"sauvegarde","Téléchargement","Sauvegarde chiffrée",null,null)]);
+    return jsonResponse(saved.envelope,200,{"Content-Disposition":'attachment; filename="TiceCDI-Sauvegarde.json"'});
+  }
+  if (path==="/api/gestion/sauvegarde" && method==="POST") {
+    need("restaurer");
+    const {backup:encoded,phrase,token}=await payload(request,maxEnvelopeBytes);
+    const backup=await decryptBackup(encoded,phrase,fail);
+    const summary=inspectBackup(backup,fail);
+    const privacy=checkedPrivacyState(backup.privacy,fail);
+    if (new TextEncoder().encode(JSON.stringify(backup)).byteLength>maxBackupBytes) fail(413,"Le fichier est trop volumineux.");
+    const fingerprint=await digest(JSON.stringify(encoded));
+    if (token===undefined) return json({...summary,token:fingerprint});
+    if (!equal(token,fingerprint)) fail(409,"Analysez à nouveau le fichier avant de restaurer.");
+    scrubLegacy(backup.tables);
+    await restoreBackup(m,me,backup,summary,fail,recoveryStatements(m,privacy,clock,await privacySettings(m)));
     return json(summary);
   }
   if (path==="/api/gestion/journal" && method==="GET") {
@@ -473,6 +583,7 @@ async function dispatch(request, env, options) {
   }
   const yearItem=path.match(/^\/api\/gestion\/annees\/(\d{4}-\d{4})$/)?.[1];
   if (yearItem && method==="GET") {
+    need("export");
     if (!me.admin) fail(403,"L’archive est réservée aux administrateurs.");
     return json({rows:await archiveRows(m,yearItem,fail)});
   }
@@ -492,28 +603,28 @@ async function dispatch(request, env, options) {
     if (method === "PATCH" && itemId) {
       need("sorties");
       const { minutes, expires_at } = await payload(request);
-      if (![15, 30].includes(minutes) || !Number.isSafeInteger(expires_at)) fail(400, "Choisissez une prolongation de 15 ou 30 minutes.");
-      const visit = await m.one(`SELECT v.expires_at,v.ended_at,s.first_name,s.last_name FROM visits v
-        JOIN students s ON s.id=v.student_id WHERE v.id=?`, itemId);
+      if (![15, 30, 60].includes(minutes) || !Number.isSafeInteger(expires_at)) fail(400, "Choisissez une prolongation de 15, 30 ou 60 minutes.");
+      const visit = await m.one(`SELECT expires_at,ended_at FROM visits WHERE id=?`, itemId);
       if (!visit || visit.ended_at !== null || visit.expires_at <= clock) fail(409, "Cette présence est terminée.");
       if (visit.expires_at !== expires_at) fail(409, "Le départ prévu a changé. Fermez cette fenêtre et ouvrez à nouveau la prolongation.");
       const updated = expires_at + minutes * 60_000;
       const [result] = await m.batch([
         m.stmt("UPDATE visits SET expires_at=? WHERE id=? AND ended_at IS NULL AND expires_at=? AND expires_at>?", updated, itemId, expires_at, Date.now()),
-        audit(m, me, "presences", "Prolongation de présence", visit.first_name + " " + visit.last_name, {expiration:expires_at}, {expiration:updated}, true),
+        audit(m, me, "presences", "Prolongation de présence", "Présence", null, null, true),
       ]);
       if (!changes(result)) fail(409, "La présence a changé. Fermez cette fenêtre et ouvrez à nouveau la prolongation.");
       return json({ expires_at: updated });
     }
     if (method === "DELETE" && itemId) {
       need("sorties");
-      await m.run("UPDATE visits SET ended_at=? WHERE id=? AND ended_at IS NULL AND expires_at>?", clock, itemId, clock);
+      const closed=await m.run("UPDATE visits SET ended_at=? WHERE id=? AND ended_at IS NULL AND expires_at>?", clock, itemId, clock);
+      if (!changes(closed)) fail(409,"Cette présence est déjà terminée ou son créneau a expiré.");
       return json({ ok: true });
     }
   }
   if (resource === "classes") {
     if (method === "GET" && !itemId) {
-      need("classes", "eleves", "badges", "import", "presence", "sorties", "arrivees", "planning");
+      need("classes", "eleves", "badges", "import", "presence", "sorties", "arrivees", "planning","donnees");
       return json({ rows: await m.list(`SELECT c.id,c.name,(SELECT count(*) FROM students s WHERE s.class_id=c.id AND s.active=1) AS total
         FROM classes c ORDER BY c.normalized`) });
     }
@@ -536,15 +647,18 @@ async function dispatch(request, env, options) {
       return json({ ok: true });
     }
   }
-  if (resource === "eleves") {
-    if (method === "GET" && !itemId) {
-      const forBadges = url.searchParams.get("badges") === "1";
+  const studentSearch=path==="/api/gestion/eleves/recherche" && method==="POST";
+  if (resource==="eleves" || studentSearch) {
+    if ((method==="GET" && !itemId) || studentSearch) {
+      const filter=studentSearch ? await payload(request) : Object.fromEntries(url.searchParams);
+      const forBadges = filter.badges === "1";
+      if (forBadges) need("export");
       need(...(forBadges ? ["badges"] : ["eleves", "exclusions", "groupes"]));
-      const classId = url.searchParams.get("class") ?? "";
-      const active = !forBadges && me.rights.includes("eleves") && url.searchParams.get("archived") === "1" ? 0 : 1;
-      const search = words(url.searchParams.get("q")?.slice(0, 90)).split(" ").filter(Boolean).slice(0, 8);
+      const classId = clean(filter.class);
+      const active = !forBadges && me.rights.includes("eleves") && filter.archived === "1" ? 0 : 1;
+      const search = words(studentSearch ? clean(filter.q).slice(0,90) : "").split(" ").filter(Boolean).slice(0, 8);
       const query = search.map(() => "AND instr(s.search_name,?)>0").join(" ");
-      const extra = forBadges || me.rights.includes("badges") ? ",s.code" : "";
+      const extra = forBadges ? ",s.code" : "";
       const external = !forBadges && me.rights.includes("eleves") ? ",s.external_id" : "";
       return json({ rows: await m.list(`SELECT ${personColumns}${extra}${external} FROM students s JOIN classes c ON c.id=s.class_id
         WHERE s.active=? AND (?='' OR s.class_id=?) ${query} ORDER BY s.last_name,s.first_name,c.name LIMIT 5000`, active, classId, classId, ...search) });
@@ -592,7 +706,10 @@ async function dispatch(request, env, options) {
     if (target && !me.admin && (target.admin || publicAccount(target).rights.some((right) => !me.rights.includes(right)))) fail(403, "Ce compte ne peut pas être modifié avec vos droits.");
     if (method === "DELETE" && itemId) {
       if (target.id === me.id) fail(409, "Votre compte ne peut pas être supprimé depuis votre session.");
-      const deleted = await m.run("DELETE FROM accounts WHERE id=? AND (admin=0 OR (SELECT count(*) FROM accounts WHERE admin=1)>1)", target.id);
+      const [deleted]=await m.batch([
+        m.stmt("DELETE FROM accounts WHERE id=? AND (admin=0 OR (SELECT count(*) FROM accounts WHERE admin=1)>1)",target.id),
+        audit(m,me,"confidentialite","Suppression d’un compte","Comptes",null,null,true),
+      ]);
       if (!changes(deleted)) fail(409, "Au moins un compte administrateur doit rester actif.");
       return json({ ok: true });
     }
@@ -612,10 +729,14 @@ async function dispatch(request, env, options) {
         const actions = [m.stmt(`UPDATE accounts SET username=?,name=?,secret=?,permissions=?,admin=?
           WHERE id=? AND (admin=0 OR ?=1 OR (SELECT count(*) FROM accounts WHERE admin=1)>1)`,
           login, name, secret, JSON.stringify(rights), Number(admin), target.id, Number(admin))];
+        actions.push(audit(m,me,"confidentialite","Modification d’un compte ou de ses droits","Comptes",null,null,true));
         if (secret !== target.secret) actions.push(m.stmt("DELETE FROM sessions WHERE account_id=?", target.id));
         if (!changes((await m.batch(actions))[0])) fail(409, "Au moins un compte administrateur doit rester actif.");
         if (secret !== target.secret && me.id === target.id) return openSession(m, request, target.id);
-      } else await m.run("INSERT INTO accounts VALUES (?,?,?,?,?,?)", id(), login, name, secret, JSON.stringify(rights), Number(admin));
+      } else await m.batch([
+        m.stmt("INSERT INTO accounts VALUES (?,?,?,?,?,?)", id(), login, name, secret, JSON.stringify(rights), Number(admin)),
+        audit(m,me,"confidentialite","Création d’un compte","Comptes",null,null),
+      ]);
       return json({ ok: true });
     }
   }
@@ -626,7 +747,7 @@ export async function api(request, env, options = {}) {
   catch (error) {
     if (error instanceof InputError) return json({ error: error.message }, error.status);
     if (/UNIQUE constraint failed/i.test(error.message)) return json({ error: "Cette valeur est déjà utilisée." }, 409);
-    console.error("CDI API", new URL(request.url).pathname, error);
+    console.error("TiceCDI API", error.name);
     return json({ error: "Le service est temporairement indisponible. Réessayez dans un instant." }, 500);
   }
 }

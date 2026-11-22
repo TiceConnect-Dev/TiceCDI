@@ -93,7 +93,7 @@ export function timelineBounds(data, days) {
   return { first,last };
 }
 
-function timelineForDay(data,item,first,last) {
+export function timelineForDay(data,item,first,last) {
   const events=data.rows.filter(row=>row.day===item.date);
   const windows=data.hours.filter(row=>row.weekday===item.weekday);
   const hasSchedule=data.use_hours || data.hours.length>0;

@@ -1,160 +1,67 @@
-# Manuel d’utilisation · Gestion du CDI
+# Manuel TiceCDI
 
-Ce manuel s’adresse à l’équipe du CDI, à la vie scolaire et à la personne qui administre l’application. Les intitulés en **gras** correspondent aux rubriques de l’interface.
+Présences, planning et fréquentation du CDI · Une application de TiceConnect
 
-## Sommaire
+## 1. Mettre en service
 
-1. [Mise en service](#1-mise-en-service)
-2. [Borne et présences](#2-borne-et-présences)
-3. [Arrivées groupées et appel](#3-arrivées-groupées-et-appel)
-4. [Planning, horaires et écran](#4-planning-horaires-et-écran)
-5. [Élèves, classes et cartes](#5-élèves-classes-et-cartes)
-6. [Comptes et droits](#6-comptes-et-droits)
-7. [Statistiques, journal et année scolaire](#7-statistiques-journal-et-année-scolaire)
-8. [Sauvegardes et restauration](#8-sauvegardes-et-restauration)
-9. [Dépannage](#9-dépannage)
+Suivez le [guide PHP](docs/INSTALLATION-PHP.md) ou le [guide Docker et Portainer](docs/INSTALLATION-PORTAINER.md). Au premier démarrage, créez un compte administrateur nominatif avec la clé d’installation générée localement. Attribuez un compte nominatif à chaque agent et les seuls droits utiles à ses missions.
 
-## 1. Mise en service
+Dans **Établissement et données personnelles**, renseignez l’identité et le contact de l’établissement, le contact du DPD, la finalité, la base légale, la source, les destinataires, l’hébergement, les durées et les modalités d’exercice des droits. Vérifiez les trois documents avant diffusion. La notice courte est accessible depuis la borne et la notice complète peut être téléchargée pour l’ENT. La fiche de registre est un modèle à valider et compléter localement.
 
-Pour installer le service, utilise le [guide PHP](docs/INSTALLATION-PHP.md), le [guide Portainer](docs/INSTALLATION-PORTAINER.md) ou [Docker Compose depuis les sources](README.md#installation). Pour une première mise en service dans l’établissement, procède dans cet ordre.
+Pour un traitement mis en œuvre localement dans un collège ou lycée public, le chef d’établissement assure la responsabilité du traitement local. L’établissement détermine la base légale, les habilitations, les durées et l’hébergement avec l’appui du DPD. Il documente son évaluation du besoin d’analyse d’impact en fonction de l’usage prévu et réalise l’AIPD lorsque le traitement présente un risque élevé. La fin de journée proposée par le logiciel est un **choix de configuration**. L’appel scolaire officiel suit les procédures de l’établissement.
 
-1. Ouvre l’espace de gestion avec l’adresse indiquée par ton guide d’installation. Crée le compte administrateur avec la clé obtenue dans les journaux Docker ou dans le fichier `installation.key` de l’édition PHP. Le mot de passe doit comporter au moins 12 caractères.
-2. Ajoute les classes et les élèves manuellement ou importe le CSV. Fais les premiers essais avec des fiches fictives.
-3. Dans **Réglages de la borne**, configure le message d’accueil, la capacité du CDI, la deuxième heure et les horaires.
-4. Crée un compte par personne dans **Comptes et droits**, puis attribue les accès correspondant à ses missions.
-5. Ouvre `/borne` sur le poste d’accueil et `/planning-ecran` sur l’écran d’affichage. Place les deux pages en plein écran si nécessaire.
-6. Teste un pointage, une sortie et un export PDF avant de distribuer les cartes aux élèves.
+[Éducation nationale – protection des données personnelles](https://www.education.gouv.fr/la-protection-des-donnees-personnelles-1421) · [CNIL – déterminer le besoin d’AIPD](https://www.cnil.fr/sites/cnil/files/atoms/files/infographie_aipd.pdf)
 
-## 2. Borne et présences
+## 2. Borne et accès du personnel
 
-### Enregistrer une arrivée
-
-1. Place le curseur dans le champ unique de la borne.
-2. Si l’option est disponible et que l’élève souhaite rester jusqu’à la deuxième heure pleine, coche la case **avant** de scanner ou de valider.
-3. Scanne le code-barres, saisis le code manuellement ou tape le nom ou le prénom. Pour une recherche par nom, sélectionne la bonne fiche dans la liste.
-4. Lis la confirmation qui indique l’heure de départ prévue.
-
-| Arrivée | Pointage standard | Avec la deuxième heure |
-| --- | --- | --- |
-| 8 h 30 | Départ à 9 h | Départ à 10 h |
-| 8 h 55 | Départ à 9 h | Départ à 10 h |
-| 9 h pile | Départ à 10 h | Départ à 11 h |
-
-Un nouveau scan d’une fiche déjà présente rappelle son échéance. Quand l’inscription est fermée, la jauge est pleine ou une exclusion est active, la borne affiche le message correspondant. La jauge est recalculée lorsqu’une présence prend fin.
-
-### Gérer les élèves présents
-
-- Dans **Présences**, recherche un élève ou filtre par classe. La liste affiche l’arrivée et le départ prévu.
-- Clique sur **Prolonger**, choisis **15** ou **30 minutes**, puis valide. La durée est ajoutée au départ prévu. Par exemple, une prolongation de 15 minutes décale un départ de 9 h à 9 h 15.
-- Clique sur **Sortie** pour libérer la place avant l’échéance.
-- Pour exclure un élève, clique sur **Exclure**, choisis une date de fin et renseigne le motif. L’exclusion clôture la présence en cours et bloque les nouvelles arrivées jusqu’à la fin de la date choisie. Elle peut être levée depuis **Exclusions**.
-
-## 3. Arrivées groupées et appel
-
-1. Va dans **Présences → Arrivée groupée** et sélectionne la classe ou le groupe. Tu peux aussi ouvrir le cours du jour depuis le **Planning du CDI** si un effectif lui est rattaché.
-2. Choisis le départ prévu. Les options vont de la prochaine heure pleine à la quatrième heure pleine.
-3. Décoche les absents. Relis l’effectif coché puis clique sur **Enregistrer l’appel**.
-4. Dans **Fiches d’appel**, ouvre la séance pour corriger les statuts, voir qui est toujours présent ou exporter l’appel au format CSV. Si la capacité est atteinte, les élèves concernés apparaissent **En attente de place**. Une fois une place libre, mets à jour leur statut pour enregistrer leur arrivée.
-5. Choisis **Terminer la séance** pour clôturer les présences de la séance. Tu peux cocher les élèves qui restent au CDI et garder leur échéance prévue.
-
-La fiche d’appel conserve l’effectif enregistré à l’ouverture, même si la composition de la classe ou du groupe change ensuite.
-
-## 4. Planning, horaires et écran
-
-### Régler l’ouverture
-
-Dans **Réglages de la borne**, utilise **Accepter les nouvelles arrivées** pour ouvrir ou fermer manuellement les inscriptions. La fermeture manuelle laisse les élèves déjà pointés dans la liste jusqu’à leur départ. Active les horaires automatiques pour appliquer des plages d’ouverture récurrentes. Chaque jour peut contenir jusqu’à quatre plages, par exemple **8 h–12 h** et **13 h–16 h**. Un jour sans plage est fermé lorsque les horaires automatiques sont activés.
-
-Une **fermeture** inscrite dans le planning bloque la borne pendant son créneau. Un cours peut être affiché sur le planning sans être une fermeture.
-
-### Préparer le planning et les exports
-
-1. Dans **Planning du CDI**, sélectionne la semaine et ajoute un créneau.
-2. Renseigne la date, les heures, le titre et le type. Associe éventuellement une classe ou un groupe. Utilise les notes pour les informations du personnel.
-3. Déplace un créneau par glisser-déposer par pas de 15 minutes. Clique dessus pour modifier ses horaires au formulaire. Le planning refuse les chevauchements.
-4. Utilise **Copier la semaine** pour reporter les créneaux vers la semaine suivante. Les créneaux qui se chevaucheraient sont ignorés.
-5. Utilise **PDF de la semaine** ou **PDF d’une journée** pour imprimer une grille **A4 paysage**. Les plages **Ouvert**, **Fermé** et les cours ou activités apparaissent à leurs horaires respectifs. Le réglage **Masquer samedi et dimanche** s’applique par défaut, avec une option dans le planning pour l’export en cours.
-
-Sur l’écran d’affichage, ouvre `/planning-ecran`, puis choisis la vue **Jour** ou **Semaine**. Elle s’actualise automatiquement. Les notes internes sont visibles depuis la gestion.
-
-## 5. Élèves, classes et cartes
-
-### Importer l’annuaire
-
-1. Ouvre **Importer des élèves** et télécharge le modèle.
-2. Prépare un CSV UTF-8 avec les colonnes `Nom`, `Prénom` et `Classe`. Ajoute `Identifiant externe` si ton annuaire fournit un identifiant stable par élève. L’application accepte les séparateurs point-virgule, virgule et tabulation, jusqu’à 5 000 fiches par fichier.
-3. Sélectionne le fichier, vérifie l’aperçu et confirme l’import. Les classes manquantes et les codes CDI sont créés automatiquement.
-
-Exemple avec des données fictives.
-
-```csv
-Nom;Prénom;Classe;Identifiant externe
-Martin;Camille;6e A;EXEMPLE-01
-Bernard;Noé;5e B;EXEMPLE-02
-```
-
-Un identifiant externe stable permet de retrouver la même fiche lors d’un changement de classe. Sans identifiant externe, le rapprochement utilise le nom, le prénom et la classe. Pour déplacer ponctuellement un élève, change sa classe dans **Élèves → Modifier**.
-
-### Classes et groupes hors classe
-
-- Dans **Classes**, crée et renomme les classes, puis vérifie leurs effectifs.
-- Dans **Élèves**, ajoute une fiche, modifie son affectation ou retire l’élève de la borne. La fiche peut être réactivée par la suite.
-- Dans **Groupes hors classe**, crée un groupe pour un atelier ou un club. Tu peux y mélanger plusieurs classes, puis le choisir dans une fiche d’appel ou un créneau du planning.
-
-### Cartes et douchette
-
-Dans **Codes-barres**, filtre par classe et choisis **Imprimer la planche**. Imprime à **100 %** sur du A4 et désactive les en-têtes et pieds de page ajoutés par le navigateur. Une douchette USB configurée en clavier **HID**, avec le suffixe **Entrée**, permet la validation après la lecture du code **Code 128**.
-
-## 6. Comptes et droits
-
-Dans **Comptes et droits**, crée le compte, choisis éventuellement un préréglage puis vérifie les cases avant d’enregistrer.
-
-| Profil ou droit | Accès correspondant |
+| Habilitation | Peut effectuer |
 | --- | --- |
-| **Vie scolaire** | Consultation des présences |
-| **Équipe CDI** | Consultation, sorties, prolongations, exclusions et gestion des élèves |
-| **Pointer une classe ou un groupe** | Arrivées groupées et fiches d’appel |
-| **Gérer le planning** | Modification des créneaux et exports PDF |
-| **Consulter les statistiques** | Statistiques et export CSV agrégé |
-| **Administrateur** | Tous les accès, dont les réglages, les années scolaires, le journal, les sauvegardes et les raccourcis vers les écrans |
+| Vie scolaire | Consulter les présences, selon le droit attribué. |
+| Personnel du CDI | Consulter et gérer les présences et prolongations selon ses droits. |
+| Activer un poste | Ouvrir une borne de pointage sur un navigateur dédié pendant douze heures. |
+| Exporter | Télécharger les sauvegardes chiffrées. Les exports ciblés exigent aussi le droit de consulter leur rubrique. |
+| Restaurer | Analyser et appliquer une sauvegarde ou un état de reprise. |
+| Traiter les dossiers individuels | Rechercher, consulter et rectifier un dossier, ou l’effacer sur demande validée. |
+| Administrateur | Configurer l’établissement et les droits, accéder au journal et exécuter les opérations d’administration. |
 
-Le formulaire propose aussi des droits distincts pour les classes, les groupes, l’import, l’impression des codes-barres et la gestion des comptes. Une personne peut accéder à la borne et au planning d’affichage par leur adresse sur l’installation Docker, sans ouvrir une session CDI.
+Sur le poste dédié, ouvrez **Activation de la borne**, choisissez **Activer ce poste** et confirmez. La session du personnel se ferme et la borne s’ouvre. Une activation expirée ou révoquée nécessite une nouvelle intervention. Une restauration révoque aussi les activations en cours. Les agents chargés de la seule consultation disposent de leur propre accès dans **Présences**.
 
-## 7. Statistiques, journal et année scolaire
+Sur la borne, scannez la carte CDI ou saisissez son code. L’élève choisit **Entrée** ou **Sortie**. Une douchette Code 128 en mode clavier HID avec suffixe Entrée peut valider l’entrée depuis le champ. La borne efface la saisie après chaque pointage et la confirmation disparaît au bout de cinq secondes. Elle n’affiche ni nom, ni annuaire, ni liste des présents.
 
-- **Statistiques.** Choisis une période pour voir les passages et les durées observées par date, jour de la semaine, heure et classe. Le CSV de cette rubrique contient des chiffres agrégés. Pour l’appel d’une séance, exporte le CSV nominatif depuis la fiche correspondante.
-- **Journal des modifications.** Un administrateur peut filtrer par rubrique et consulter la date, l’auteur et le détail des changements, par exemple pour le planning, les horaires, les groupes, l’appel, les prolongations et les restaurations.
-- **Années scolaires.** Fais une sauvegarde, puis importe le CSV **complet** de la nouvelle année avec un **Identifiant externe** stable et unique pour chaque élève. Relis l’aperçu des créations, changements de classe et fiches à archiver avant de confirmer. Les fiches reconnues conservent leur code-barres. Les élèves absents du nouvel import sont archivés et les anciens effectifs restent consultables et exportables.
+## 3. Présences, planning et appel interne
 
-## 8. Sauvegardes et restauration
+Un pointage à 8 h 30 expire à 9 h. L’option deuxième heure, si l’établissement l’autorise, ou la prolongation d’un créneau par le personnel, porte cette échéance à 10 h. La liste des présents se recalcule côté serveur. Dans le dossier individuel, **Créneau expiré** désigne une échéance atteinte. **Sortie enregistrée** désigne une action de sortie.
 
-### Sauvegarde JSON du CDI
+Dans **Présences → Arrivée groupée**, sélectionnez une classe ou un groupe et décochez les élèves absents. La fiche d’appel sert à la gestion interne du CDI. Le personnel peut rectifier le statut, fermer une séance ou garder certains élèves au CDI. L’impression des cartes et l’export de l’appel exigent l’habilitation d’export.
 
-1. Avec un compte administrateur, ouvre **Sauvegarde et restauration → Télécharger le fichier JSON**.
-2. Conserve le fichier dans un emplacement interne réservé au personnel autorisé. Il contient les fiches et codes-barres, classes, groupes, passages, exclusions, appels, planning, horaires, réglages, années et journal.
-3. Pour restaurer, choisis le fichier et clique sur **Analyser le fichier**. Vérifie la date et les quantités affichées dans l’aperçu.
-4. Après avoir sauvegardé l’état actuel, clique sur **Restaurer cette sauvegarde** puis confirme. La restauration remplace les données du CDI et est inscrite dans le journal.
+Dans **Planning du CDI**, configurez les horaires et ajoutez une réservation, un cours ou une fermeture. Déplacez le créneau à la souris ou ouvrez son formulaire au clavier pour changer ses heures. Un agent habilité peut exporter le PDF du jour ou de la semaine. Les horaires ouverts, fermés et réservés sont également présentés dans **Version tableau du planning**. Pour activer l’écran sans connexion, utilisez le réglage de confidentialité. Le public reçoit uniquement les horaires et ces statuts. Les titres, affectations, notes et jauges sont réservés aux vues habilitées.
 
-Le fichier JSON peut être restauré entre les éditions PHP et Docker. Les comptes du personnel et les sessions de connexion sont gérés séparément. Les présences restaurées reprennent les horaires d’origine du fichier. La présence en cours s’affiche si son échéance est encore à venir.
+La borne, les formulaires et le planning proposent des libellés explicites, un focus visible, des commandes au clavier et des états exprimés en texte. Toute déclaration de conformité RGAA repose sur une évaluation effective de l’instance. [Évaluer et déclarer l’accessibilité](https://accessibilite.numerique.gouv.fr/obligations/evaluation-conformite/)
 
-### Copie complète du volume Docker
+## 4. Import et droits individuels
 
-Pour un transfert de serveur ou une reprise complète, la copie du volume inclut la base SQLite et les comptes du personnel.
+Préparez un CSV avec `Nom`, `Prénom`, `Classe` et, si nécessaire, `Identifiant interne` stable pour les homonymes et les réimports. Le navigateur extrait ces champs, ignore les autres colonnes et transmet les seules valeurs retenues. Le serveur ne reçoit pas le fichier brut. Pour un passage d’année, l’identifiant interne doit être renseigné de manière stable. Conservez les documents d’origine selon les règles de votre établissement.
 
-1. Repère le projet Compose et son volume `cdi_data`.
-2. Arrête le service avec `docker compose stop cdi`, puis copie **tout** le contenu du volume avec l’outil de sauvegarde de l’hôte.
-3. Relance le service avec `docker compose start cdi`, puis vérifie `/healthz`.
-4. Pour rétablir une copie, arrête le service de destination, sauvegarde son volume actuel et rétablis le contenu complet de la copie dans le volume utilisé par le service. Relance puis vérifie une connexion administrateur et quelques fiches.
+Dans **Dossiers individuels**, recherchez l’élève puis ouvrez son dossier. La vue distingue l’annuaire, les passages conservés, les appels internes, les exclusions et les éventuelles archives. Rectifiez les données d’identité ou utilisez l’export ciblé selon vos droits. L’effacement demande une confirmation explicite. Il supprime les données nominatives associées, invalide les anciennes copies locales de sauvegarde et enregistre un identifiant technique dans l’état de reprise pour empêcher une réapparition. Les agrégats de fréquentation sont conservés.
 
-## 9. Dépannage
+## 5. Purge, statistiques et journal
 
-| Situation | Vérification |
-| --- | --- |
-| La borne fonctionne sur le serveur, mais pas depuis un autre poste | Vérifie `CDI_BIND_IP`, le port publié et l’accès réseau depuis le poste. Relance Compose après modification de `.env`. |
-| La douchette saisit du texte sans valider | Active le suffixe **Entrée** en mode clavier HID. Vérifie la disposition clavier avec un code de test. |
-| La borne affiche « fermé » | Vérifie l’interrupteur manuel, les horaires du jour et les fermetures du planning. |
-| Un élève n’apparaît pas | Vérifie que la fiche est active et que le code correspond à sa carte. La recherche par nom nécessite au moins trois caractères. |
-| Un élève est en attente sur une fiche d’appel | Consulte la jauge et corrige le statut une fois une place disponible. |
-| Une rubrique de gestion est absente | Vérifie les droits du compte. Les rubriques sont affichées selon les autorisations. |
-| L’écran affiche encore une ancienne version du planning | Vérifie la connexion de l’écran au serveur et recharge la page. Les changements sont récupérés automatiquement quand la connexion fonctionne. |
-| Tu veux vérifier que le service répond | Charge `/healthz` et consulte `docker compose logs cdi`. |
+Le réglage **0 jour supplémentaire** conserve les passages jusqu’à la fin de leur journée (heure de Paris). Un créneau encore actif est conservé jusqu’à son échéance. Les fiches d’appel, les archives nominatives des années closes et les exclusions échues suivent aussi la purge configurée. L’annuaire des élèves en activité sert aux pointages et se gère séparément.
+
+La tâche enregistre les totaux journaliers et les durées agrégées avant de retirer le nominatif. Les statistiques affichées regroupent les jours à faible effectif et ne présentent pas de découpage par classe, matière ou élève. Pour afficher un détail journalier, chaque jour présenté doit contenir un groupe vérifié d’au moins cinq élèves distincts. Si au moins un tel groupe existe sur la période, un total regroupé est possible. Ce seuil et les restrictions d’accès limitent la réidentification.
+
+Sous Docker la tâche tourne au démarrage puis toutes les minutes. Sous PHP programmez [la tâche CLI](docs/INSTALLATION-PHP.md#programmer-la-purge). Le tableau de bord affiche le dernier succès. Le journal consigne les changements de droits, les opérations d’export, les restaurations et les effacements, avec une durée dédiée. Réservez les champs libres du planning et le message de la borne aux informations de service.
+
+## 6. Sauvegardes et restauration
+
+Dans **Sauvegarde et restauration**, créez une sauvegarde chiffrée avec une phrase secrète et conservez-la séparément dans les outils internes autorisés. Les archives locales sont limitées en nombre et expirent selon les réglages lorsque la purge est active. L’export et la restauration sont des habilitations distinctes. Les comptes et les réglages de confidentialité sont gérés sur l’instance d’accueil.
+
+Pour restaurer, sélectionnez le fichier et analysez-le avant confirmation. Avant de rendre la restauration visible, l’application réapplique les purges et les effacements connus, et conserve les événements d’administration encore valides. Une sauvegarde historique JSON en clair peut être reprise. Protégez-la comme toute copie nominative.
+
+Après un effacement validé et avant toute sauvegarde d’infrastructure, utilisez **Exporter l’état de reprise**. Conservez ce petit fichier chiffré, mis à jour, séparément du stockage de l’application. En cas de perte du volume, préparez le serveur hors accès usagers, saisissez les durées validées, importez l’état de reprise le plus récent avec **Importer l’état de reprise**, puis restaurez la sauvegarde. Si l’état à jour a été perdu, l’établissement doit reconstituer les demandes validées avant de rouvrir. Un ancien fichier ne contient que les décisions connues à sa date.
+
+## 7. Mettre à jour une installation existante
+
+Faites une sauvegarde hors accès usagers. Gardez le dossier de données PHP, le chemin d’installation, les variables et la même stack Docker avec le volume `cdi_data`. La migration ajoute les nouveaux réglages et préserve les passages existants tant que les durées ne sont pas validées. Elle retire des entrées de journal anciennes les noms recopiés lors de corrections d’appel ou de prolongations. Vérifiez ensuite les comptes, nommez les agents autorisés à activer la borne et validez la purge. Le planning sans connexion est fermé par défaut.
+
+Si vous restaurez directement un volume ou un dossier SQLite (au lieu de la restauration dans TiceCDI), gardez l’instance hors accès usagers et importez l’état de reprise courant avant de rouvrir. La rotation gérée par TiceCDI concerne ses copies locales. Les autres sauvegardes et leurs durées relèvent de l’établissement.

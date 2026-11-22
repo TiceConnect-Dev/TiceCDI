@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { api } from "../cdi/service.mjs";
+import { api, model } from "../cdi/service.mjs";
+import { maintain } from "../cdi/privacy.mjs";
 import { page } from "../cdi/shell.mjs";
 import { openDatabase } from "./sqlite.mjs";
 
@@ -12,6 +13,10 @@ const data = resolve(process.env.CDI_DATA_DIR || "./data");
 process.umask(0o077);
 await mkdir(data, { recursive: true });
 const DB = openDatabase(join(data, "cdi.sqlite"), new URL("../drizzle/", import.meta.url));
+const runMaintenance = () => maintain(model(DB)).catch(() => console.error("TiceCDI · échec de la purge."));
+await runMaintenance();
+const maintenanceTimer = setInterval(runMaintenance, 60_000);
+maintenanceTimer.unref();
 const port = Number(process.env.PORT || 8080);
 let setupKey = process.env.CDI_SETUP_KEY;
 if (!await DB.prepare("SELECT id FROM accounts LIMIT 1").bind().first()) {
@@ -40,14 +45,16 @@ const assets = new Map([
   ["attendance.js", "text/javascript; charset=utf-8"],
   ["school.js", "text/javascript; charset=utf-8"],
   ["planning-pdf.js", "text/javascript; charset=utf-8"],
-  ["favicon.svg", "image/svg+xml"],
+  ["privacy.js", "text/javascript; charset=utf-8"],
+  ["ticecdi-logo.webp", "image/webp"],
+  ["ticecdi-icon.webp", "image/webp"],
 ]);
 async function requestHandler(request, client) {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/")) return api(request, { DB, CDI_SETUP_KEY: setupKey }, { client });
   const shell = page(request);
   if (shell) return shell;
-  const asset = url.pathname.match(/^\/cdi\/([a-z.-]+)$/)?.[1];
+  const asset = url.pathname.match(/^\/cdi\/([a-z0-9.-]+)$/)?.[1];
   if (assets.has(asset) && ["GET", "HEAD"].includes(request.method)) {
     const body = await readFile(new URL("../public/cdi/" + asset, import.meta.url));
     return new Response(body, { headers: { "Content-Type": assets.get(asset), "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" } });
@@ -72,13 +79,14 @@ const server = createServer(async (incoming, outgoing) => {
     if (method === "HEAD" || !response.body) outgoing.end();
     else await pipeline(Readable.fromWeb(response.body), outgoing);
   } catch (error) {
-    console.error("CDI HTTP", error);
+    console.error("TiceCDI HTTP", error.name);
     if (!outgoing.headersSent) outgoing.writeHead(500).end("Service indisponible.");
     else outgoing.destroy();
   }
 });
-server.listen(port, "0.0.0.0", () => console.log(`Gestion du CDI à l’écoute sur le port ${port}.`));
+server.listen(port, "0.0.0.0", () => console.log(`TiceCDI à l’écoute sur le port ${port}.`));
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.close(() => {
+  clearInterval(maintenanceTimer);
   DB.database.close();
   process.exit(0);
 }));

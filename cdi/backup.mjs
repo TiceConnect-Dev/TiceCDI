@@ -67,10 +67,16 @@ function validColumn(row, {key, nullable, type}) {
 }
 
 export async function exportBackup(m, clock, fail) {
-  const data = await m.batch(tables.map(({name,columnList})=>m.stmt(`SELECT ${columnList} FROM ${name}`)));
+  const data = await m.batch([
+    ...tables.map(({name,columnList})=>m.stmt(`SELECT ${columnList} FROM ${name}`)),
+    m.stmt("SELECT archived_before FROM privacy_state WHERE id=1"),
+    m.stmt("SELECT * FROM daily_statistics ORDER BY day"),
+    m.stmt("SELECT student_id FROM erased_students ORDER BY student_id"),
+  ]);
   const backup = {
     format:FORMAT, version:VERSION, created_at:new Date(clock).toISOString(),
     tables:Object.fromEntries(tables.map(({name},index)=>[name,data[index].results])),
+    privacy:{archived_before:data.at(-3).results[0].archived_before,daily:data.at(-2).results,erased:data.at(-1).results.map(r=>r.student_id)},
   };
   const serialized = JSON.stringify(backup);
   if (encoder.encode(serialized).byteLength > maxBackupBytes) fail(413, "Les données dépassent la taille maximale d’une sauvegarde depuis l’administration.");
@@ -111,11 +117,11 @@ export function inspectBackup(backup, fail) {
   return {created_at:backup.created_at, counts};
 }
 
-export async function restoreBackup(m, me, backup, summary, fail) {
-  const statements = [...tables].reverse().map(({name})=>m.stmt(`DELETE FROM ${name}`));
+export async function restoreBackup(m, me, backup, summary, fail, recovery = []) {
+  const statements = [...tables].reverse().filter(({name})=>name!=="audit_log").map(({name})=>m.stmt(`DELETE FROM ${name}`));
   for (const {name,columns,columnList} of tables) {
     const extract = columns.map(({key})=>`json_extract(value,'$.${key}')`).join(",");
-    const sql = `INSERT INTO ${name} (${columnList}) SELECT ${extract} FROM json_each(?)`;
+    const sql = `INSERT ${name==="audit_log"?"OR IGNORE ":""}INTO ${name} (${columnList}) SELECT ${extract} FROM json_each(?)`;
     let chunk = [];
     let bytes = 2;
     for (const row of backup.tables[name]) {
@@ -132,6 +138,7 @@ export async function restoreBackup(m, me, backup, summary, fail) {
     }
     if (chunk.length) statements.push(m.stmt(sql, "[" + chunk.join(",") + "]"));
   }
+  statements.push(...recovery);
   statements.push(audit(m, me, "sauvegarde", "Restauration d’une sauvegarde", "Données du CDI", null, {
     sauvegarde_du:summary.created_at,
     élèves:summary.counts.students,

@@ -77,38 +77,58 @@ function authResource(Store $db, string $path, string $method, int $clock, strin
 
 function publicResource(Store $db, string $path, string $method, int $clock, string $ip): array
 {
-    if ($path === '/api/borne/entree' && $method === 'POST') {
-        throttle($db, "checkin:$ip", 90);
-        $data = requestData();
-        return $db->atomic(static fn () => kioskCheckIn($db, $data, clockMs()));
+    if ($method === 'GET' && $path === '/api/notice') {
+        return noticeData($db);
     }
-    if ($path === '/api/borne/recherche' && $method === 'GET') {
-        $query = searchWords(q('q'), 8);
-        if (mb_strlen(implode('', $query), 'UTF-8') < 3) {
-            return ['results' => []];
+    if ($method === 'GET' && $path === '/api/planning') {
+        if (!privacySettings($db)['public_planning']) {
+            fail(403, 'L’écran de planning sans connexion est désactivé.');
         }
-        throttle($db, "search:$ip", 140);
-        if (closure($db, $clock, kioskSettings($db)) !== '') {
-            return ['results' => []];
+        $planning = weekPlanning($db, validateMonday(q('week')), $clock);
+        $planning['rows'] = array_map(static function ($slot): array {
+            $closed = $slot['kind'] === 'fermeture';
+            return array_intersect_key($slot, array_flip(['day','start_min','end_min'])) +
+                ['kind' => $closed ? 'fermeture' : 'reservation', 'title' => $closed ? 'Fermé' : 'Réservé', 'class_name' => null];
+        }, $planning['rows']);
+        return $planning;
+    }
+    if (!str_starts_with($path, '/api/borne/')) {
+        fail(404, 'Action introuvable.');
+    }
+    $token = $_COOKIE['cdi_device'] ?? '';
+    $key = is_string($token) && preg_match('/^[a-f0-9]{64}$/D', $token) ? hash('sha256', $token) : '';
+    $device = $db->one("SELECT k.token FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
+        WHERE k.token=? AND k.expires_at>? AND (a.admin=1 OR EXISTS(SELECT 1 FROM json_each(a.permissions) WHERE value='borne'))", $key, $clock);
+    if ($method === 'GET' && $path === '/api/borne/reglages') {
+        if (!$device) {
+            return ['activated' => false];
         }
-        $where = str_repeat(' AND instr(s.search_name,?)>0', count($query));
-        return ['results' => $db->all('SELECT s.id,s.first_name,s.last_name,c.name AS class_name ' . PEOPLE_JOIN .
-            " WHERE s.active=1 $where ORDER BY s.last_name,s.first_name,c.name LIMIT 7", ...$query)];
+        $settings = kioskSettings($db);
+        $reason = closure($db, $clock, $settings);
+        $settings['open'] = $reason === '';
+        return $settings + occupancy($db, $clock) + ['activated' => true, 'reason' => $reason];
     }
-    if ($method === 'GET' && in_array($path, ['/api/borne/reglages', '/api/planning'], true)) {
-        return $db->atomic(static function () use ($db, $path, $clock): array {
-            $settings = kioskSettings($db);
-            $reason = closure($db, $clock, $settings);
-            if ($path === '/api/planning') {
-                $details = weekPlanning($db, validateMonday(q('week')), $clock);
-            } else {
-                $details = $settings;
-                unset($details['open']);
-            }
-            return $details + occupancy($db, $clock) + ['open' => $reason === '', 'reason' => $reason];
-        }, false);
+    if (!$device) {
+        fail(403, 'Ce poste doit être activé par le personnel.');
     }
-    fail(404, 'Action introuvable.');
+    if ($method !== 'POST' || !in_array($path, ['/api/borne/entree','/api/borne/sortie'], true)) {
+        fail(404, 'Action introuvable.');
+    }
+    throttle($db, 'checkin:' . $key, 90);
+    $data = requestData();
+    return $db->atomic(static function () use ($db, $path, $data): array {
+        $now = clockMs();
+        if ($path === '/api/borne/entree') {
+            return kioskCheckIn($db, $data, $now);
+        }
+        $code = strtoupper(clean($data['code'] ?? null));
+        if (!preg_match('/^CDI[0-9A-F]{10}$/D', $code)) {
+            fail(400, 'Scanne ou saisis le code de ta carte CDI.');
+        }
+        $db->run('UPDATE visits SET ended_at=? WHERE ended_at IS NULL AND expires_at>?
+            AND student_id IN (SELECT id FROM students WHERE active=1 AND code=?)', $now, $now, $code);
+        return ['ok' => true];
+    });
 }
 
 function managementResource(Store $db, string $path, string $method, int $clock): array
@@ -116,6 +136,101 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     $me = authenticate($db, $clock);
     if (!$me) {
         fail(401, 'Connectez-vous pour accéder à cet espace.');
+    }
+    if ($path === '/api/gestion/borne/activation' && in_array($method, ['POST','DELETE'], true)) {
+        need($me, 'borne');
+        if ($method === 'POST') {
+            $token = bin2hex(random_bytes(32));
+            $expires = $clock + 12*HOUR_MS;
+            $db->run('INSERT INTO kiosk_devices VALUES (?,?,?)', hash('sha256',$token), $me['id'], $expires);
+            cookie($token, intdiv($expires,1000), 'cdi_device');
+        } elseif ($me['admin']) {
+            $db->run('DELETE FROM kiosk_devices');
+        } else {
+            $db->run('DELETE FROM kiosk_devices WHERE account_id=?', $me['id']);
+        }
+        audit($db,$me,'confidentialite',$method === 'POST' ? 'Activation d’un poste' : 'Révocation des activations','Borne',null,null);
+        return ['ok' => true];
+    }
+    if ($path === '/api/gestion/confidentialite' && in_array($method, ['GET','PATCH'], true)) {
+        adminOnly($me);
+        return $method === 'PATCH' ? changePrivacy($db,$me,requestData()) :
+            privacySettings($db) + $db->one('SELECT last_success FROM privacy_state WHERE id=1');
+    }
+    if ($path === '/api/gestion/confidentialite/purge' && $method === 'POST') {
+        adminOnly($me);
+        return maintain($db,$clock);
+    }
+    if ($path === '/api/gestion/dossier/recherche' && $method === 'POST') {
+        need($me,'donnees');
+        $input = clean(requestData()['q'] ?? null);
+        $tokens = searchWords($input,8);
+        if (mb_strlen(implode('',$tokens),'UTF-8') < 3) {
+            return ['rows'=>[]];
+        }
+        $filter = implode(' AND ',array_fill(0,count($tokens),'instr(s.search_name,?)>0'));
+        return ['rows'=>$db->all('SELECT ' . PERSON_COLUMNS . ' ' . PEOPLE_JOIN .
+            " WHERE ($filter) OR s.external_id=? ORDER BY s.last_name,s.first_name LIMIT 20", ...[...$tokens,$input])];
+    }
+    if (preg_match('~^/api/gestion/dossier/([a-f0-9-]+)(/export)?$~D', $path, $matches)) {
+        need($me,'donnees');
+        $student = $matches[1];
+        if (isset($matches[2]) && $method === 'GET') {
+            need($me,'export');
+            $file = studentFile($db,$student);
+            audit($db,$me,'confidentialite','Export d’un dossier','Dossier individuel',null,null);
+            header('Content-Disposition: attachment; filename="Dossier-eleve.json"');
+            return $file;
+        }
+        if (!isset($matches[2])) {
+            if ($method === 'GET') {
+                return studentFile($db,$student);
+            }
+            if ($method === 'PATCH') {
+                $file = studentFile($db,$student);
+                $data = requestData();
+                $s = studentData($data);
+                $class = clean($data['class_id'] ?? null);
+                if (!$db->one('SELECT id FROM classes WHERE id=?', $class)) {
+                    fail(400, 'Sélectionnez une classe existante.');
+                }
+                if ($s['external_id'] !== null && $db->one('SELECT id FROM students WHERE external_id=? AND id<>?', $s['external_id'], $student)) {
+                    fail(409, 'Cet identifiant externe est déjà utilisé.');
+                }
+                persistStudent($db,$s,$class,$student,false);
+                $db->run('UPDATE attendance_members SET first_name=?,last_name=? WHERE student_id=?',$s['first_name'],$s['last_name'],$student);
+                $db->run('UPDATE school_year_members SET first_name=?,last_name=? WHERE student_id=?',$s['first_name'],$s['last_name'],$student);
+                audit($db,$me,'confidentialite','Rectification d’un dossier','Dossier individuel',null,null);
+                return ['ok'=>true];
+            }
+            if ($method === 'DELETE') {
+                if ((requestData()['confirmation'] ?? null) !== 'EFFACER') {
+                    fail(400,'Confirmez l’effacement.');
+                }
+                studentFile($db,$student);
+                task($db,privacySettings($db),$clock,'erase',$student);
+                audit($db,$me,'confidentialite','Effacement validé','Dossier individuel',null,null);
+                return ['ok'=>true];
+            }
+        }
+    }
+    if ($path === '/api/gestion/export' && $method === 'POST') {
+        need($me,'export');
+        $type = requestData()['type'] ?? '';
+        $rights = ['planning'=>'planning','appel'=>'arrivees','statistiques'=>'statistiques','badges'=>'badges','archives'=>'admin'];
+        if (!is_string($type) || !isset($rights[$type])) {
+            fail(400,'Export inconnu.');
+        }
+        if ($type === 'archives') {
+            adminOnly($me);
+        } else {
+            need($me,$rights[$type]);
+        }
+        audit($db,$me,'confidentialite','Export',$type,null,null);
+        return ['ok' => true];
+    }
+    if ($path === '/api/gestion/eleves/recherche' && $method === 'POST') {
+        return studentsResource($db,'GET',null,$me,$clock,requestData());
     }
     if (preg_match('~^/api/gestion/(eleves|classes|presences|exclusions|comptes)(?:/([a-f0-9-]+))?$~D', $path, $matches)) {
         $id = $matches[2] ?? null;
@@ -148,7 +263,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     }
     if ($path === '/api/gestion/statistiques' && $method === 'GET') {
         need($me, 'statistiques');
-        return statistics($db, q('from'), q('to'), $clock);
+        return privateStatistics($db, q('from'), q('to'), $clock);
     }
     if ($path === '/api/gestion/planning' && in_array($method, ['GET', 'POST'], true)) {
         need($me, 'planning');
@@ -208,8 +323,8 @@ function managementResource(Store $db, string $path, string $method, int $clock)
             }
         }
     }
-    if ($path === '/api/gestion/sauvegarde' && in_array($method, ['GET', 'POST'], true)) {
-        return backupResource($db, $me, $method, $clock);
+    if (str_starts_with($path, '/api/gestion/sauvegarde')) {
+        return backupResource($db, $me, $path, $method, $clock);
     }
     if ($path === '/api/gestion/journal' && $method === 'GET') {
         adminOnly($me);
@@ -222,6 +337,7 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     }
     if ($method === 'GET' && preg_match('~^/api/gestion/annees/(\d{4}-\d{4})$~D', $path, $matches)) {
         adminOnly($me);
+        need($me,'export');
         if (!$db->one('SELECT label FROM school_year WHERE label=? AND closed_at IS NOT NULL', $matches[1])) {
             fail(404, 'Archive d’année scolaire introuvable.');
         }
@@ -246,7 +362,7 @@ function api(Store $db, string $path, string $method, string $dataDir): array
         return authResource($db, $path, $method, $clock, $dataDir, $ip);
     }
     if (str_starts_with($path, '/api/gestion/')) {
-        return $db->atomic(static fn () => managementResource($db, $path, $method, clockMs()), $method !== 'GET');
+        return $db->atomic(static fn () => managementResource($db, $path, $method, clockMs()), $method !== 'GET' || preg_match('~/(export|sauvegarde/[a-f0-9-]+)$~D', $path));
     }
     return publicResource($db, $path, $method, $clock, $ip);
 }

@@ -1,7 +1,8 @@
+import { renderPrivacy, renderNotice, renderDossier } from "./privacy.js";
 import { renderBackup, renderGroups, renderJournal, renderSessions, renderYears, startCall } from "./school.js";
 import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
-import { routePath, urlFor, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today } from "./shared.js";
+import { routePath, urlFor, brand, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today } from "./shared.js";
 
 const app = document.querySelector("#app");
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -13,247 +14,117 @@ const link = (text, href, glyph, mode = "secondary") =>
 const box = (symbol) => `<span class="icon-box">${icon(symbol)}</span>`;
 const pill = (text, tone = "") => `<span class="pill ${tone ? "pill-" + tone : ""}">${e(text)}</span>`;
 
-function header(area = "kiosk", isAdmin = false) {
-  const links = area === "kiosk" ? `<button id="fullscreen" type="button" aria-label="Plein écran" aria-pressed="false" hidden>${icon("fullscreen")}<span>Plein écran</span></button><a href="${urlFor("/gestion")}">${icon("lock")}<span>Espace personnel</span></a>`
-    : `${area === "login" || isAdmin ? `<a href="${urlFor("/borne")}">${icon("wide")}<span>${area === "admin" ? '<span class="mobile-hide">Ouvrir la </span>Borne' : "Borne élèves"}</span></a>` : ""}
-       ${area === "admin" ? `<button id="logout">${icon("logout")}<span>Déconnexion</span></button>` : ""}`;
+function header(area = "home", canActivate = false) {
+  const links=`<a href="${urlFor("/notice")}">Données personnelles</a>`+
+    (area==="admin" ? `${canActivate?`<a href="${urlFor("/gestion/borne-poste")}">Activer la borne</a>`:""}
+      <button id="logout" type="button">${icon("logout")}<span>Déconnexion</span></button>`
+      : `<a href="${urlFor("/gestion")}">${icon("lock")}<span>Espace personnel</span></a>`);
   return `<header class="masthead"><div class="wrap masthead-inner">
-    <a class="brand" href="${urlFor(area === "admin" ? "/gestion" : "/borne")}"><span class="institution"><span class="tricolor" aria-hidden="true"><i></i><i></i><i></i></span>CITÉ SCOLAIRE<br>CAMILLE CLAUDEL</span>
-    <span class="brand-divider" aria-hidden="true"></span><span class="product">Gestion du CDI<small>Centre de documentation et d’information</small></span></a>
+    <a class="brand" href="${urlFor("/")}">${brand(area==="kiosk")}</a>
     <nav class="top-links" aria-label="Accès rapides">${links}</nav>
   </div></header>`;
 }
 
-const footer = `<footer class="footer"><div class="wrap footer-inner"><b>Cité scolaire Camille Claudel · Fourmies</b><span>Centre de documentation et d’information</span></div></footer>`;
+const footer = '<footer class="footer"><div class="wrap footer-inner"><b>TiceCDI</b><span>Une application de TiceConnect</span></div></footer>';
+function home() {
+  app.innerHTML=`<div class="kiosk-page">${header()}<main class="wrap kiosk" id="main">
+    <section class="panel panel-body home-card">
+      <h1>${brand(false,true)}</h1><p class="home-subtitle">Présences, planning et fréquentation du CDI</p>
+      <nav class="button-row" aria-label="Accès à TiceCDI">
+        <a class="btn primary" href="${urlFor("/borne")}">Borne du CDI</a>
+        <a class="btn secondary" href="${urlFor("/gestion")}">Espace personnel</a>
+        <a class="btn secondary" href="${urlFor("/planning-ecran")}" id="home-planning" hidden>Planning</a>
+      </nav></section></main>${footer}</div>`;
+  api("/notice").then(data=>{$("#home-planning").hidden=!data.public_planning;}).catch(()=>{});
+}
+
 function kiosk() {
-  app.innerHTML = `<div class="kiosk-page">${header()}<main class="wrap kiosk" id="main">
+  app.innerHTML=`<div class="kiosk-page">${header("kiosk")}<main class="wrap kiosk" id="main">
     <section class="panel kiosk-card" aria-labelledby="kiosk-title">
-      <header class="kiosk-intro">
-        <span class="kiosk-book">${icon("book")}</span>
-        <div><h1 id="kiosk-title">Bienvenue au CDI</h1><p>Scanne ta carte ou saisis ton nom pour enregistrer ton arrivée.</p></div>
-      </header>
+      <header class="kiosk-intro"><div><h1 id="kiosk-title">Pointage du CDI</h1>
+        <p>Scanne ta carte ou saisis son code. Choisis Entrée ou Sortie.</p></div></header>
       <div class="kiosk-body">
-        <div id="kiosk-capacity" class="kiosk-capacity" role="status" hidden></div>
-        <div id="kiosk-announcement" role="status" hidden></div>
-        <div id="kiosk-closed" role="status" hidden>${notice("Les inscriptions au CDI sont fermées pour le moment.", "", "clock")}</div>
-        <form id="entry-form" autocomplete="off">
-          <label class="field" for="entry-input">
-            <span>Nom, prénom ou code-barres</span>
-            <span class="with-icon">${icon("scan")}<input id="entry-input" type="text" maxlength="90" spellcheck="false" autocapitalize="off"
-              role="combobox" aria-autocomplete="list" aria-controls="entry-results" aria-expanded="false" placeholder="Ex. Camille Martin"></span>
-          </label>
-          <div id="entry-results" class="kiosk-results" role="listbox" aria-label="Élèves trouvés" hidden></div>
-          <div class="entry-bottom">
-            <div class="entry-duration"><span class="hint">Départ à la prochaine heure pleine</span>
-              <label class="check-line" id="second-hour"><input type="checkbox" id="two-hours"> Rester jusqu’à la deuxième heure pleine</label></div>
-            <button class="btn primary" id="entry-submit" type="submit">${icon("check")} Valider mon arrivée</button>
-          </div>
-          <div id="entry-message" aria-live="polite"></div>
-        </form>
-      </div>
-    </section><p class="hint fullscreen-message" id="fullscreen-message" role="status" hidden></p></main>${footer}</div>`;
-  const form = $("#entry-form");
-  const input = $("#entry-input");
-  const resultBox = $("#entry-results");
-  const message = $("#entry-message");
-  const submit = $("#entry-submit");
-  const two = $("#two-hours");
-  const scanPattern = /^CDI[0-9a-f]{10}$/i;
-  const scanPrefix = /^CDI[0-9a-f]{1,9}$/i;
-  let matches = [], selection = -1, lookup, revision = 0, pending, clearResult, running = false;
-
-  function show(text, tone = "") {
-    clearTimeout(clearResult);
-    message.innerHTML = text ? notice(text, tone) : "";
+        <div id="kiosk-state" role="status"><p>Vérification de l’activation du poste…</p></div>
+        <form id="entry-form" autocomplete="off" hidden>
+          <label class="field" for="entry-input"><span>Code-barres de ta carte CDI</span>
+            <input id="entry-input" type="password" maxlength="13" spellcheck="false" autocapitalize="characters" required></label>
+          <label class="check-line" id="second-hour"><input type="checkbox" id="two-hours"> Rester jusqu’à la deuxième heure pleine</label>
+          <div class="button-row"><button class="btn primary" id="entry-submit" type="submit" name="direction" value="entree">Entrée</button>
+            <button class="btn secondary" type="submit" name="direction" value="sortie">Sortie</button>
+            <button type="button" class="btn secondary" id="kiosk-fullscreen">Plein écran</button></div>
+        </form><div id="entry-message" role="status" aria-live="polite" aria-atomic="true"></div></div>
+    </section></main>${footer}</div>`;
+  const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
+  const entry=$("#entry-submit"), buttons=$$("button[type=submit]",form);
+  let busy=false, expiry, refreshing=false;
+  function show(text,tone) {
+    clearTimeout(expiry);
+    message.innerHTML=notice(text,tone);
+    expiry=setTimeout(()=>message.replaceChildren(),5000);
   }
-  function clearMatches() {
-    revision++;
-    clearTimeout(pending);
-    lookup = undefined;
-    matches = [];
-    selection = -1;
-    resultBox.hidden = true;
-    resultBox.innerHTML = "";
-    input.removeAttribute("aria-activedescendant");
-    input.setAttribute("aria-expanded", "false");
-  }
-  function select(index) {
-    selection = index;
-    $$(".result-item", resultBox).forEach((node, i) => node.setAttribute("aria-selected", String(i === index)));
-    input.setAttribute("aria-activedescendant", "result-" + index);
-    $("#result-" + index)?.scrollIntoView({ block:"nearest" });
-  }
-  function search(raw) {
-    clearTimeout(pending);
-    if (lookup?.query === raw) return lookup.promise;
-    const version = revision;
-    const promise = api("/borne/recherche?q=" + encodeURIComponent(raw)).then(({ results }) => {
-      if (version !== revision) return false;
-      matches = results;
-      resultBox.hidden = !matches.length;
-      input.setAttribute("aria-expanded", String(Boolean(matches.length)));
-      resultBox.innerHTML = matches.map((row, i) =>
-        `<button class="result-item" id="result-${i}" type="button" tabindex="-1" role="option" data-index="${i}" aria-selected="false"><span>${fullName(row)}</span>${pill(row.class_name)}</button>`).join("");
-      if (!matches.length) show("Aucun élève trouvé. Vérifie le nom ou scanne ta carte.");
-      return true;
-    }, (error) => {
-      if (version !== revision) return false;
-      lookup = undefined;
-      show(error.message, "error");
-      return false;
-    });
-    lookup = { query:raw, promise };
-    return promise;
-  }
-  async function register(data) {
-    if (running || form.hidden) return;
-    running = true;
-    submit.disabled = true;
-    input.readOnly = true;
-    const requestedDuration = two.checked;
-    clearMatches();
-    show("");
+  async function refresh() {
+    if(refreshing) return;
+    refreshing=true;
     try {
-      const result = await api("/borne/entree", "POST", { ...data, two_hours:requestedDuration });
-      two.checked = false;
-      input.value = "";
-      show(result.already ? `Ta présence est déjà enregistrée jusqu’à ${time(result.expires_at)}.`
-        : `Bienvenue, ${result.first_name} ! Ton arrivée est enregistrée jusqu’à ${time(result.expires_at)}.`, "success");
-      clearResult = setTimeout(() => show(""), 10_000);
-      refreshSettings();
-    } catch (error) {
-      show(error.message, "error");
-      if (error.status === 409) refreshSettings();
-    } finally {
-      running = false;
-      submit.disabled = false;
-      input.readOnly = false;
-      if (!form.hidden) {
-        input.focus();
-        if (data.code) input.select();
-      }
-    }
+      const settings=await api("/borne/reglages");
+      const wasHidden=form.hidden;
+      form.hidden=!settings.activated;
+      entry.disabled=busy || !settings.open;
+      $("#second-hour").hidden=!settings.open || !settings.second_hour;
+      if($("#second-hour").hidden) two.checked=false;
+      const text=!settings.activated ? "Ce poste doit être activé par le personnel du CDI."
+        : !settings.open ? settings.reason : settings.message || "";
+      if($("#kiosk-state").textContent!==text) $("#kiosk-state").textContent=text;
+      if (form.hidden) { form.reset(); }
+      else if(wasHidden) input.focus({preventScroll:true});
+    } catch {
+      form.hidden=true;
+      form.reset();
+      $("#kiosk-state").textContent="La borne est momentanément indisponible.";
+    } finally {refreshing=false;}
   }
-  input.addEventListener("input", () => {
-    show("");
-    clearMatches();
-    const raw = input.value.trim();
-    if (raw.length >= 3 && !scanPattern.test(raw) && !scanPrefix.test(raw)) pending = setTimeout(() => search(raw), 220);
-  });
-  input.addEventListener("keydown", (event) => {
-    if (!matches.length) return;
-    if (event.key === "Escape") clearMatches();
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      select(event.key === "ArrowDown" ? Math.min(selection + 1, matches.length - 1) : Math.max(selection - 1, 0));
-    }
-  });
-  resultBox.addEventListener("click", (event) => {
-    const item = event.target.closest("[data-index]");
-    const chosen = item && matches[Number(item.dataset.index)];
-    if (chosen) register({ student_id:chosen.id });
-  });
-  form.addEventListener("submit", async (event) => {
+  form.addEventListener("submit",async event=>{
     event.preventDefault();
-    if (running || form.hidden) return;
-    const raw = input.value.trim();
-    if (scanPattern.test(raw)) { register({ code:raw }); return; }
-    if (scanPrefix.test(raw)) { show("Code-barres incomplet. Scanne à nouveau ta carte.", "error"); return; }
-    if (raw.length < 3) { show("Scanne ta carte ou saisis au moins trois caractères.", "error"); return; }
-    if (!await search(raw) || form.hidden || input.value.trim() !== raw) return;
-    const chosen = matches[selection >= 0 ? selection : 0];
-    if (chosen && (selection >= 0 || matches.length === 1)) register({ student_id:chosen.id });
-    else if (matches.length) show("Choisis ton nom dans la liste.");
-  });
-  let buffer = "", lastKey = 0;
-  document.addEventListener("keydown", (event) => {
-    if (form.hidden || event.target === input || event.ctrlKey || event.metaKey || event.altKey) return;
-    const now = performance.now();
-    if (event.key === "Enter") {
-      if (scanPattern.test(buffer) && now - lastKey < 150) {
-        event.preventDefault();
-        register({ code:buffer });
-      }
-      buffer = "";
-    } else if (/^[a-z0-9]$/i.test(event.key)) {
-      buffer = ((now - lastKey < 100 ? buffer : "") + event.key).slice(-13);
-      lastKey = now;
+    if(busy || form.hidden) return;
+    const direction=event.submitter?.value ?? "entree";
+    if(direction==="entree" && entry.disabled) return;
+    const data={code:input.value.trim(),two_hours:two.checked};
+    form.reset();
+    busy=true;
+    buttons.forEach(button=>button.disabled=true);
+    try {
+      const result=await api("/borne/"+direction,"POST",data);
+      show(direction==="sortie" ? "Pointage de sortie traité." : "Présence enregistrée jusqu’à "+time(result.expires_at)+".","success");
+    } catch(error) { show(error.message,"error"); }
+    finally {
+      busy=false;
+      buttons.forEach(button=>button.disabled=false);
+      refresh();
+      input.focus({preventScroll:true});
     }
   });
-
-  const announcement = $("#kiosk-announcement");
-  const closed = $("#kiosk-closed");
-  const secondHour = $("#second-hour");
-  let lastMessage = "", fetchingSettings=false;
-  const gauge=$("#kiosk-capacity");
-  async function refreshSettings() {
-    if (fetchingSettings) return;
-    fetchingSettings=true;
+  $("#kiosk-fullscreen").hidden=!document.fullscreenEnabled;
+  $("#kiosk-fullscreen").addEventListener("click",async event=>{
     try {
-      const settings = await api("/borne/reglages");
-      if (settings.message !== lastMessage) {
-        lastMessage = settings.message;
-        announcement.innerHTML = lastMessage ? notice(lastMessage) : "";
-        announcement.hidden = !lastMessage;
-      }
-      secondHour.hidden = !settings.second_hour;
-      if (!settings.second_hour) two.checked = false;
-      gauge.hidden=settings.capacity===null || !settings.open;
-      gauge.dataset.full=String(settings.places===0);
-      const seats=settings.places===0?"CDI complet":settings.places+" place"+(settings.places>1?"s":"")+" disponible"+(settings.places>1?"s":"");
-      if(!gauge.hidden && gauge.textContent!==seats) gauge.textContent=seats;
-      const shouldHide = !settings.open;
-      const reason = settings.reason || "Les inscriptions au CDI sont fermées pour le moment.";
-      const closedLabel = $(".notice > div",closed);
-      if (shouldHide && closedLabel.textContent!==reason) closedLabel.textContent=reason;
-      if (form.hidden !== shouldHide) {
-        clearMatches();
-        show("");
-        input.value = "";
-        two.checked = false;
-        form.hidden = shouldHide;
-        closed.hidden = settings.open;
-        if (settings.open) input.focus({ preventScroll:true });
-      }
-    } catch {
-      // Keep the last displayed settings while the server is unreachable.
-    } finally { fetchingSettings=false; }
-  }
-  refreshSettings();
-  setInterval(refreshSettings, 5_000);
-  window.addEventListener("online",refreshSettings);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshSettings(); });
-
-  const fullscreen = $("#fullscreen");
-  fullscreen.hidden = !document.fullscreenEnabled;
-  fullscreen.addEventListener("click", async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
+      if(document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
-    } catch {
-      const fallback = $("#fullscreen-message");
-      fallback.textContent = "Utilise l’option Plein écran de ton navigateur.";
-      fallback.hidden = false;
-    }
+    } catch {show("Utilise le mode plein écran du navigateur.");}
   });
-  document.addEventListener("fullscreenchange", () => {
-    const expanded = Boolean(document.fullscreenElement);
-    fullscreen.setAttribute("aria-pressed", String(expanded));
-    const label = expanded ? "Quitter le plein écran" : "Plein écran";
-    fullscreen.setAttribute("aria-label", label);
-    $("span", fullscreen).textContent = label;
-    $("#fullscreen-message").hidden = true;
+  document.addEventListener("fullscreenchange",()=>{
+    const control=$("#kiosk-fullscreen");
+    if(control) control.textContent=document.fullscreenElement?"Quitter le plein écran":"Plein écran";
   });
-  input.focus({ preventScroll:true });
+  refresh();
+  setInterval(refresh,5000);
 }
 
 function login(status) {
-  const heading = status.setup ? "Configurer l’espace de gestion" : "Connexion à l’espace personnel";
+  const heading = status.setup ? "Configurer TiceCDI" : "Connexion à TiceCDI";
   app.innerHTML = `<div class="login-page">${header("login")}
-    <main class="wrap login-layout" id="main"><nav class="crumb" aria-label="Fil d’Ariane"><a href="${urlFor("/borne")}">Accueil</a>${icon("chevron")} <span>Espace personnel</span></nav>
+    <main class="wrap login-layout" id="main"><nav class="crumb" aria-label="Fil d’Ariane"><a href="${urlFor("/")}">Accueil</a>${icon("chevron")} <span>Espace personnel</span></nav>
     <section class="panel login-card">${box("lock")}<h1>${heading}</h1><p class="subtle">${status.setup ? "Créez le premier compte administrateur du CDI." : "Connectez-vous avec le compte fourni par votre administrateur."}</p>
     <form id="login-form" class="stack">
-      ${status.setup && status.keyRequired ? '<label class="field"><span>Clé d’installation</span><input name="key" type="password" required autocomplete="off"><small>La clé figure dans les journaux du conteneur après le premier démarrage.</small></label>' : ""}
+      ${status.setup && status.keyRequired ? '<label class="field"><span>Clé d’installation</span><input name="key" type="password" required autocomplete="off"><small>La clé est dans les journaux Docker ou dans le dossier privé de l’installation PHP.</small></label>' : ""}
       ${status.setup ? '<label class="field"><span>Nom d’affichage</span><input name="name" placeholder="Ex. Thomas Luc" maxlength="100" required autocomplete="name"></label>' : ""}
       <label class="field"><span>Identifiant</span><input name="username" autocomplete="username" maxlength="80" required></label>
       <label class="field"><span>Mot de passe</span><input name="password" type="password" autocomplete="${status.setup ? "new-password" : "current-password"}" required maxlength="160" ${status.setup ? 'minlength="12"' : ""}>${status.setup ? "<small>12 caractères au minimum.</small>" : ""}</label>
@@ -279,6 +150,7 @@ const rightNames = {
   presence:"Consulter les présences", sorties:"Enregistrer les sorties", exclusions:"Gérer les exclusions", eleves:"Gérer les élèves",
   classes:"Gérer les classes", import:"Importer les élèves", badges:"Imprimer les codes-barres", comptes:"Gérer les comptes",
   arrivees:"Pointer une classe ou un groupe", planning:"Gérer le planning", statistiques:"Consulter les statistiques", groupes:"Gérer les groupes hors classe",
+  borne:"Activer un poste de pointage", export:"Exporter les données", restaurer:"Restaurer une sauvegarde", donnees:"Traiter les dossiers individuels",
 };
 const tabs = [
   ["presences", "Présences", "users", ["presence", "sorties", "arrivees"]],
@@ -295,7 +167,10 @@ const tabs = [
   ["reglages", "Réglages de la borne", "settings", ["admin"]],
   ["annees", "Années scolaires", "calendar", ["admin"]],
   ["journal", "Journal des modifications", "chart", ["admin"]],
-  ["sauvegarde", "Sauvegarde et restauration", "download", ["admin"]],
+  ["sauvegarde", "Sauvegarde et restauration", "download", ["export","restaurer"]],
+  ["confidentialite", "Établissement et données personnelles", "lock", ["admin"]],
+  ["dossiers", "Dossiers individuels", "users", ["donnees"]],
+  ["borne-poste", "Activation de la borne", "scan", ["borne"]],
 ];
 let me, view, records = [], classes = [], activeFilters = { q:"", class:"", archived:"" }, toastTimer, refreshTimer, rosterVersion = 0;
 const can = (right) => right === "admin" ? me.admin : me.rights.includes(right);
@@ -317,17 +192,17 @@ function toast(message, tone = "success") {
   toastTimer = setTimeout(() => { target.hidden = true; }, 4700);
 }
 function section(title, desc, actions = "") {
-  return `<nav class="crumb" aria-label="Fil d’Ariane"><span>Gestion du CDI</span>${icon("chevron")}<span>${title}</span></nav>
+  return `<nav class="crumb" aria-label="Fil d’Ariane"><span>TiceCDI</span>${icon("chevron")}<span>${title}</span></nav>
   <div class="page-head"><div><h1>${title}</h1><p>${desc}</p></div><div class="head-actions">${actions}</div></div>`;
 }
 function adminShell(user, selected) {
   me = user;
-  const visible = tabs.filter((tab) => tab[3].some(can));
+  const visible = tabs.filter((tab) => tab[3].some(can) && (tab[0]!=="badges" || can("export")));
   const selectedTab = visible.find((entry) => entry[0] === selected) ?? visible[0];
   if (!selectedTab) { login({ setup:false }); return; }
   view = selectedTab[0];
   if (routePath() !== "/gestion/" + view) history.replaceState(null, "", urlFor("/gestion/" + view));
-  app.innerHTML = `<div class="admin-bg">${header("admin",me.admin)}<div class="wrap admin-shell">
+  app.innerHTML = `<div class="admin-bg">${header("admin",can("borne"))}<div class="wrap admin-shell">
     <aside class="sidebar"><p class="sidebar-title">Espace de gestion</p><nav aria-label="Administration du CDI">
       ${visible.map(([key, title, glyph]) => `<a class="side-link" href="${urlFor("/gestion/" + key)}" ${key === view ? 'aria-current="page"' : ""}>${icon(glyph)}${title}</a>`).join("")}
     </nav><p class="user-info">${icon("user")}${e(me.name)}</p></aside>
@@ -372,20 +247,29 @@ async function render() {
   } else if (view === "import") {
     renderImport();
   } else if (view === "planning") {
-    await renderPlanning($("#main"),{section,dialogForm,confirmDialog,toast,showScreenLink:me.admin,
+    const noticeSettings=await api("/notice");
+    await renderPlanning($("#main"),{section,dialogForm,confirmDialog,toast,showScreenLink:noticeSettings.public_planning, canExport:can("export"),
       openClassArrival:can("arrivees") ? (classes,options)=>startCall(classes,dialogForm,options) : null});
   } else if (view === "seances") {
-    await renderSessions($("#main"),{section,dialogForm,toast});
+    await renderSessions($("#main"),{section,dialogForm,toast,canExport:can("export")});
   } else if (view === "groupes") {
     await renderGroups($("#main"),{section,dialogForm,toast});
   } else if (view === "journal") {
     await renderJournal($("#main"),{section,toast});
   } else if (view === "sauvegarde") {
-    renderBackup($("#main"),{section,toast,confirmDialog});
+    await renderBackup($("#main"),{section,toast,confirmDialog,canExport:can("export"),canRestore:can("restaurer")});
   } else if (view === "annees") {
     await renderYears($("#main"),{section,toast,confirmDialog,readCsv});
   } else if (view === "statistiques") {
-    await renderStatistics($("#main"),{section,toast});
+    await renderStatistics($("#main"),{section,toast,canExport:can("export")});
+  } else if (view==="confidentialite") {
+    await renderPrivacy($("#main"),{section,toast,confirmDialog});
+  } else if (view==="dossiers") {
+    await renderDossier($("#main"),{section,toast,dialogForm,canExport:can("export")});
+  } else if (view==="borne-poste") {
+    $("#main").innerHTML=section("Activation de la borne","Activez ce navigateur sur un poste dédié pour douze heures.")+
+      `<div class="panel panel-body button-row">${button("Activer ce poste","scan",'data-action="activate-device"',"primary")}
+      ${button(me.admin?"Révoquer tous les postes":"Révoquer mes postes","lock",'data-action="revoke-devices"')}</div>`;
   } else if (view === "reglages") {
     await renderKioskSettings();
     await openingForm($("#main"),toast);
@@ -469,8 +353,7 @@ function renderPresence() {
 }
 async function fetchStudents() {
   const version = ++rosterVersion;
-  const params = new URLSearchParams(activeFilters);
-  const result = await gestion("eleves?" + params);
+  const result = await gestion("eleves/recherche","POST",activeFilters);
   if (version !== rosterVersion) return;
   records = result.rows;
   const withBadges = can("badges");
@@ -683,7 +566,7 @@ function exclusionDialog(known) {
           if (q.length < 2) return;
           timer = setTimeout(async () => {
             try {
-              const result = await gestion("eleves?" + new URLSearchParams({ q }));
+              const result = await gestion("eleves/recherche","POST",{q});
               if (token !== sequence) return;
               select.innerHTML = result.rows.length ? '<option value="">Sélectionner un élève</option>' + result.rows.slice(0, 100).map((row) =>
                 `<option value="${e(row.id)}">${fullName(row)} · ${e(row.class_name)}</option>`).join("") : '<option value="">Aucun élève trouvé</option>';
@@ -699,7 +582,7 @@ function accountDialog(row) {
   const directRights = Object.keys(rightNames).filter(can);
   const profiles = {
     vie:["presence"],
-    cdi:["presence","sorties","exclusions","eleves"],
+    cdi:["presence","sorties","exclusions","eleves","borne"],
   };
   dialogForm(row ? "Modifier le compte" : "Créer un compte", `
     <label class="field"><span>Nom d’affichage</span><input name="name" value="${e(row?.name)}" maxlength="100" required></label>
@@ -747,13 +630,21 @@ function actionHandler(event) {
   if (action === "class-arrival" && can("arrivees")) startCall(classes,dialogForm,{roster_id:activeFilters.class}).catch(error=>toast(error.message,"error"));
   if (action === "refresh") fetchPresence().catch((error) => toast(error.message, "error"));
   if (action === "sample") downloadSample();
-  if (action === "print") window.print();
+  if (action === "print" && can("export")) gestion("export","POST",{type:"badges"}).then(()=>window.print()).catch(error=>toast(error.message,"error"));
+  if (action==="activate-device" && can("borne")) {
+    confirmDialog("Activer ce poste","La session du personnel se fermera et la borne s’ouvrira sur ce poste.","Activer",async()=>{
+      await gestion("borne/activation","POST",{});
+      await api("/auth/logout","POST");
+      location.assign(urlFor("/borne"));
+    },"Poste activé.",()=>{},false);
+  }
+  if (action==="revoke-devices" && can("borne")) confirmDialog("Révoquer les activations","Les postes concernés devront être réactivés.","Révoquer",()=>gestion("borne/activation","DELETE"),"Activations révoquées.");
   if (action === "student-new" || (action === "student-edit" && record)) studentDialog(record);
   if (action === "class-new" || (action === "class-edit" && classRow)) classDialog(classRow);
   if (action === "account-new" || (action === "account-edit" && record)) accountDialog(record);
   if (action === "exclude-new" || (action === "exclude-visit" && record)) exclusionDialog(record);
   if (action === "student-restore" && record) confirmDialog("Réactiver la fiche élève", `${record.first_name} ${record.last_name} pourra à nouveau utiliser son code CDI.`, "Réactiver", () => gestion("eleves/" + id, "PATCH", { ...record, reactivate:true }), "Fiche réactivée.", fetchStudents, false);
-  if (action === "student-delete" && record) confirmDialog("Retirer l’élève", `${record.first_name} ${record.last_name} ne figurera plus dans la recherche de la borne. Sa présence en cours prendra fin.`, "Retirer", () => gestion("eleves/" + id, "DELETE"), "Élève retiré de la borne.", fetchStudents);
+  if (action === "student-delete" && record) confirmDialog("Retirer l’élève", `${record.first_name} ${record.last_name} ne pourra plus pointer à la borne. Sa présence en cours prendra fin.`, "Retirer", () => gestion("eleves/" + id, "DELETE"), "Élève retiré de la borne.", fetchStudents);
   if (action === "class-delete" && classRow) confirmDialog("Supprimer la classe", `Confirmez la suppression de la classe ${classRow.name}.`, "Supprimer", () => gestion("classes/" + id, "DELETE"), "Classe supprimée.");
   if (action === "account-delete" && record) confirmDialog("Supprimer le compte", `Le compte de ${record.name} perdra immédiatement son accès.`, "Supprimer", () => gestion("comptes/" + id, "DELETE"), "Compte supprimé.");
   if (action === "exclude-lift" && record) confirmDialog("Lever l’exclusion", `Confirmez la levée de cette exclusion pour ${record.first_name} ${record.last_name}.`, "Lever l’exclusion", () => gestion("exclusions/" + id, "DELETE"), "Exclusion levée.", render, false);
@@ -762,6 +653,7 @@ function actionHandler(event) {
       <label class="field"><span>Temps à ajouter au départ prévu</span><select name="minutes">
         <option value="15">15 minutes · départ à ${time(record.expires_at + 900_000)}</option>
         <option value="30">30 minutes · départ à ${time(record.expires_at + 1_800_000)}</option>
+        <option value="60">Un créneau · départ à ${time(record.expires_at + 3_600_000)}</option>
       </select></label>`, "Prolonger", async form => {
       const result = await gestion("presences/" + id, "PATCH", { minutes:Number(form.elements.minutes.value), expires_at:record.expires_at });
       return "Présence prolongée jusqu’à " + time(result.expires_at) + ".";
@@ -775,6 +667,8 @@ function actionHandler(event) {
 
 async function start() {
   const pathname = routePath();
+  if (pathname==="/") {home();return;}
+  if (pathname==="/notice") {await renderNotice(app,header(),footer);return;}
   if (pathname.replace(/\/$/,"") === "/planning-ecran") { renderScreen(app); return; }
   if (!(pathname === "/connexion" || pathname.startsWith("/gestion"))) { kiosk(); return; }
   try {

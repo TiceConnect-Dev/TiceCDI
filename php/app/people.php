@@ -150,7 +150,7 @@ function importStudents(Store $db, array $body): array
 function classesResource(Store $db, string $method, ?string $id, array $me): array
 {
     if ($method === 'GET' && $id === null) {
-        need($me, 'classes', 'eleves', 'badges', 'import', 'presence', 'sorties', 'arrivees', 'planning');
+        need($me, 'classes', 'eleves', 'badges', 'import', 'presence', 'sorties', 'arrivees', 'planning', 'donnees');
         return ['rows' => $db->all('SELECT c.id,c.name,(SELECT count(*) FROM students s
             WHERE s.class_id=c.id AND s.active=1) AS total FROM classes c ORDER BY c.normalized')];
     }
@@ -183,17 +183,20 @@ function searchWords(string $query, int $limit): array
     return $text === '' ? [] : array_slice(explode(' ', $text), 0, $limit);
 }
 
-function studentsResource(Store $db, string $method, ?string $id, array $me, int $clock): array
+function studentsResource(Store $db, string $method, ?string $id, array $me, int $clock, ?array $filters=null): array
 {
     if ($method === 'GET' && $id === null) {
-        $badges = q('badges') === '1';
+        $badges = ($filters['badges'] ?? q('badges')) === '1';
+        if ($badges) {
+            need($me, 'export');
+        }
         need($me, ...($badges ? ['badges'] : ['eleves', 'exclusions', 'groupes']));
         $canEdit = in_array('eleves', $me['rights'], true);
-        $active = $badges || !$canEdit || q('archived') !== '1';
-        $class = q('class');
-        $search = searchWords(q('q'), 8);
+        $active = $badges || !$canEdit || ($filters['archived'] ?? q('archived')) !== '1';
+        $class = clean($filters['class'] ?? q('class'));
+        $search = searchWords(clean($filters['q'] ?? null), 8);
         $where = str_repeat(' AND instr(s.search_name,?)>0', count($search));
-        $extra = $badges || in_array('badges', $me['rights'], true) ? ',s.code' : '';
+        $extra = $badges ? ',s.code' : '';
         $external = !$badges && $canEdit ? ',s.external_id' : '';
         return ['rows' => $db->all('SELECT ' . PERSON_COLUMNS . $extra . $external . ' ' . PEOPLE_JOIN .
             " WHERE s.active=? AND (?='' OR s.class_id=?) $where ORDER BY s.last_name,s.first_name,c.name LIMIT 5000",
@@ -246,6 +249,7 @@ function accountsResource(Store $db, string $method, ?string $id, array $me, int
         if (!$db->run('DELETE FROM accounts WHERE id=? AND (admin=0 OR (SELECT count(*) FROM accounts WHERE admin=1)>1)', $id)) {
             fail(409, 'Au moins un compte administrateur doit rester actif.');
         }
+        audit($db, $me, 'confidentialite', 'Suppression d’un compte', 'Comptes', null, null);
         return ['ok' => true];
     }
     if (($method === 'POST' && !$target) || ($method === 'PATCH' && $target)) {
@@ -274,6 +278,7 @@ function accountsResource(Store $db, string $method, ?string $id, array $me, int
         $secret = !$target || $password !== '' ? passwordSecret(newPassword($password)) : $target['secret'];
         if (!$target) {
             $db->run('INSERT INTO accounts VALUES (?,?,?,?,?,?)', uid(), $login, $name, $secret, jsonData($rights), $admin);
+            audit($db, $me, 'confidentialite', 'Création d’un compte', 'Comptes', null, null);
             return ['ok' => true];
         }
         if (!$db->run('UPDATE accounts SET username=?,name=?,secret=?,permissions=?,admin=?
@@ -281,6 +286,7 @@ function accountsResource(Store $db, string $method, ?string $id, array $me, int
             $login, $name, $secret, jsonData($rights), $admin, $id, $admin)) {
             fail(409, 'Au moins un compte administrateur doit rester actif.');
         }
+        audit($db, $me, 'confidentialite', 'Modification d’un compte ou de ses droits', 'Comptes', null, null);
         if ($secret !== $target['secret']) {
             $db->run('DELETE FROM sessions WHERE account_id=?', $id);
             if ($id === $me['id']) {

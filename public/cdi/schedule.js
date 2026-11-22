@@ -1,5 +1,5 @@
-import { api, urlFor, day, e, icon, notice, today } from "./shared.js";
-import { timelineBounds, weekPdf } from "./planning-pdf.js";
+import { api, urlFor, brand, day, e, icon, notice, today } from "./shared.js";
+import { timelineBounds, timelineForDay, weekPdf } from "./planning-pdf.js";
 
 const names = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
 const kinds = { cours:"Cours",atelier:"Atelier",reservation:"Réservation",fermeture:"Fermeture exceptionnelle",autre:"Autre" };
@@ -55,6 +55,17 @@ function calendar(data,{editor=false,oneDay=false,hideWeekend=data.hide_weekend}
     <div class="cal-ruler" aria-hidden="true">${steps.map(minute=>`<span data-y="${marker(minute)}">${timeLabel(minute)}</span>`).join("")}</div>${cells.map(cell=>cell.col).join("")}
   </div></div><div class="cal-legend" aria-label="Légende">${Object.keys(kinds).map(kind=>`<span>${typePill(kind)}</span>`).join("")}</div>`};
 }
+function accessiblePlanning(data,days,includeDetails) {
+  const {first,last}=timelineBounds(data,days);
+  const rows=days.flatMap(item=>timelineForDay(data,item,first,last).map(row=>{
+    const state=row.event ? row.event.kind==="fermeture"?"Fermé":"Réservé" : {open:"Ouvert",closed:"Fermé",unknown:"Horaires à définir"}[row.state];
+    const details=includeDetails && row.event ? " · "+row.event.title+(row.event.class_name?" · "+row.event.class_name:"") : "";
+    return `<tr><th scope="row">${item.name} ${shortDate(item.date)}</th><td>${span(row)}</td><td>${e(state+details)}</td></tr>`;
+  }));
+  return `<details class="accessible-planning"><summary>Version tableau du planning</summary><div class="scroll-table"><table>
+    <caption>Plages du CDI · heure de Paris</caption><thead><tr><th scope="col">Jour</th><th scope="col">Horaire</th><th scope="col">Statut</th></tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div></details>`;
+}
 function sizeCalendar(target) {
   const grid=$(".calendar-grid",target);
   grid.style.setProperty("--hours",grid.dataset.hours);
@@ -66,7 +77,7 @@ function sizeCalendar(target) {
 }
 
 export async function renderPlanning(target, context) {
-  const { section, dialogForm, confirmDialog, toast, openClassArrival, showScreenLink } = context;
+  const { section, dialogForm, confirmDialog, toast, openClassArrival, showScreenLink, canExport } = context;
   const [{rows:classes},{rows:groups}] = await Promise.all([api("/gestion/classes"),api("/gestion/groupes")]);
   const params=new URLSearchParams(location.search);
   let start=params.get("week") || weekStart(today());
@@ -78,7 +89,7 @@ export async function renderPlanning(target, context) {
     + `<section class="panel planning-panel"><div class="planning-toolbar">
       <div class="planning-navigation">${button("Précédente","previous",'data-plan="prev" aria-label="Semaine précédente"')}${dateField(start)}
       ${button("Suivante","chevron",'data-plan="next" aria-label="Semaine suivante"')}${button("Aujourd’hui","calendar",'data-plan="today"')}</div>
-      <div class="head-actions">${button("Copier la semaine","copy",'data-plan="copy"')}${button("PDF d’une journée","download",'data-plan="day-pdf"')}${button("PDF de la semaine","download",'data-plan="pdf"',"primary")}</div>
+      <div class="head-actions">${button("Copier la semaine","copy",'data-plan="copy"')}${canExport?button("PDF d’une journée","download",'data-plan="day-pdf"')+button("PDF de la semaine","download",'data-plan="pdf"',"primary"):""}</div>
     </div><div class="planning-period"><div><h2 id="week-label"></h2><span class="hint" id="week-count"></span></div>
     <label class="check-line"><input type="checkbox" id="hide-weekend"> Masquer le week-end</label></div><div id="calendar-grid" class="planning-grid"></div></section>`;
   const board=$("#calendar-grid",target);
@@ -103,7 +114,7 @@ export async function renderPlanning(target, context) {
     const count=data.rows.filter(row=>days.some(day=>day.date===row.day)).length;
     $("#week-count",target).textContent=count+" créneau"+(count>1?"x":"");
     const grid=calendar(data,{editor:true,hideWeekend:weekend.checked});
-    board.innerHTML=grid.html;
+    board.innerHTML=grid.html+accessiblePlanning(data,days,true);
     sizeCalendar(board);
     bindBoard(grid.first,grid.last);
   }
@@ -158,7 +169,7 @@ export async function renderPlanning(target, context) {
     const initialDate=slot?.day ?? (today()>=data.start && today()<=data.end ? today():data.start);
     const canCheckIn = openClassArrival && (slot?.attendance_id || (slot?.kind!=="fermeture" && (slot?.class_id||slot?.group_id) && slot.day===today()));
     dialogForm(slot?"Modifier le créneau":"Ajouter un créneau",`
-      <label class="field"><span>Titre du créneau</span><input name="title" maxlength="80" required value="${e(slot?.title)}" placeholder="Ex. Recherche documentaire"><small>Le titre, la classe ou le groupe sont visibles sur l’écran et le PDF.</small></label>
+      <label class="field"><span>Titre du créneau</span><input name="title" maxlength="80" required value="${e(slot?.title)}" placeholder="Ex. Recherche documentaire"><small>Ces détails sont réservés au planning interne et aux exports habilités.</small></label>
       <div class="form-grid">
         <label class="field"><span>Type</span><select name="kind">${options}</select></label>
         <label class="field"><span>Classe ou groupe</span><select name="roster"><option value="">Sans groupe associé</option><optgroup label="Classes">${classChoices}</optgroup><optgroup label="Groupes hors classe">${groupChoices}</optgroup></select></label>
@@ -206,14 +217,18 @@ export async function renderPlanning(target, context) {
       if(action==="new") edit();
       if(action==="prev" || action==="next") await load(shift(start,action==="prev"?-7:7),true);
       if(action==="today") await load(today(),true);
-      if(action==="pdf") saveFile("Planning-CDI-"+start+".pdf","application/pdf",weekPdf(data,dates(data,weekend.checked),kinds));
-      if(action==="day-pdf") {
+      if(action==="pdf" && canExport) {
+        await api("/gestion/export","POST",{type:"planning"});
+        saveFile("Planning-CDI-"+start+".pdf","application/pdf",weekPdf(data,dates(data,weekend.checked),kinds));
+      }
+      if(action==="day-pdf" && canExport) {
         const snapshot=data;
         const visibleDays=dates(snapshot,weekend.checked);
         dialogForm("Télécharger le PDF d’une journée",`
           <label class="field"><span>Journée du planning</span><select name="pdf_day" required>
             ${visibleDays.map(item=>`<option value="${item.date}" ${item.date===today()?"selected":""}>${item.name} ${day(item.date)}</option>`).join("")}
-          </select></label>`,"Télécharger le PDF",form=>{
+          </select></label>`,"Télécharger le PDF",async form=>{
+            await api("/gestion/export","POST",{type:"planning"});
             const picked=visibleDays.find(item=>item.date===form.elements.pdf_day.value);
             if(picked) saveFile("Planning-CDI-"+picked.date+".pdf","application/pdf",weekPdf(snapshot,[picked],kinds));
           },{success:"PDF de la journée téléchargé."});
@@ -233,7 +248,7 @@ export async function renderPlanning(target, context) {
 
 export function renderScreen(app) {
   app.innerHTML=`<main id="main" class="display-page"><header class="display-head">
-    <div>${icon("book")} <span>Cité scolaire Camille Claudel</span><h1>Planning du CDI</h1><p id="display-date"></p><p id="display-gauge" class="display-gauge" hidden></p></div>
+    <div>${brand()}<h1>Planning du CDI</h1><p id="display-date"></p></div>
     <div class="display-tools"><time id="display-clock"></time><div class="button-row">
       ${button("Aujourd’hui","calendar",'data-screen="day" aria-pressed="false"')}
       ${button("Vue semaine","grid",'data-screen="week" aria-pressed="true"')}
@@ -247,16 +262,15 @@ export function renderScreen(app) {
   function draw() {
     if (!data) return;
     $("#display-date",app).textContent=oneDay ? day(data.now.day) : weekLabel(data,dates(data).at(-1).date);
-    const label=$("#display-gauge",app);
-    label.hidden=data.open && data.capacity===null;
-    const status=!data.open ? "CDI fermé" : data.places===0 ? "CDI complet" : data.places+" place"+(data.places===1?" disponible":"s disponibles");
-    if(!label.hidden && label.textContent!==status) label.textContent=status;
     const fingerprint=JSON.stringify([oneDay,data.start,data.rows,data.hours,data.use_hours,data.hide_weekend,data.now]);
     if(fingerprint===lastGrid) return;
     lastGrid=fingerprint;
     const scroll=$(".cal-scroll",target)?.scrollLeft??0;
     const {html}=calendar(data,{oneDay});
-    target.innerHTML=html;
+    const tableOpen=$("details",target)?.open;
+    const eligible=dates(data,oneDay?false:data.hide_weekend).filter(item=>!oneDay||item.date===data.now.day);
+    target.innerHTML=html+accessiblePlanning(data,eligible,false);
+    $("details",target).open=Boolean(tableOpen);
     sizeCalendar(target);
     $(".cal-scroll",target).scrollLeft=scroll;
   }
@@ -269,7 +283,7 @@ export function renderScreen(app) {
       data=await api("/planning?week="+weekStart(today()));
       draw();
       warning.innerHTML="";
-    } catch(error) {warning.innerHTML=notice(error.message,"error");}
+    } catch(error) {target.replaceChildren();lastGrid="";warning.innerHTML=notice(error.message,"error");}
     finally{pending=false;}
   }
   app.addEventListener("click",async event=>{

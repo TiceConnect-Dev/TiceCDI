@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 const RIGHTS = [
     'presence', 'sorties', 'exclusions', 'eleves', 'classes', 'import', 'badges',
-    'comptes', 'arrivees', 'planning', 'statistiques', 'groupes',
+    'comptes', 'arrivees', 'planning', 'statistiques', 'groupes', 'borne', 'export', 'restaurer', 'donnees',
 ];
 const HOUR_MS = 3_600_000;
 const MAX_BACKUP_BYTES = 14_000_000;
@@ -279,12 +279,12 @@ function authenticate(Store $db, int $clock): ?array
     return $row ? publicAccount($row) : null;
 }
 
-function cookie(string $token, int $expires): void
+function cookie(string $token, int $expires, string $name = "cdi_session"): void
 {
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || str_starts_with(setting('CDI_ORIGIN'), 'https://');
     $prefix = rtrim(str_replace('\\', '/', dirname(entryPath())), '/');
-    setcookie('cdi_session', $token, [
+    setcookie($name, $token, [
         'expires' => $expires, 'path' => ($prefix === '.' ? '' : $prefix) . '/',
         'secure' => $secure, 'httponly' => true, 'samesite' => 'Strict',
     ]);
