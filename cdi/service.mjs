@@ -3,6 +3,7 @@ import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maint
 import { audit, auditRows } from "./audit.mjs";
 import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
 import { connectionApi, connectionSettings, ssoApi, ssoPublic } from "./connection.mjs";
+import { checkDisplay, displaySettings, kioskToday } from "./display.mjs";
 import { cardCode, deviceExpiry, deviceSettings, devicesApi, kioskLabel, rankMatches, searchTokens, touchDevice } from "./devices.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
@@ -402,8 +403,8 @@ async function dispatch(request, env, options) {
       // Renouvellement automatique : une borne utilisée régulièrement reste activée.
       const renewed=await touchDevice(m,device,clock);
       const closure=kioskClosure(clock);
-      const [settings,state,gauge]=await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock)]);
-      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason,name_search:(await deviceSettings(m)).name_search},200,
+      const [settings,state,gauge,display,todayPlan]=await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock),displaySettings(m),kioskToday(m,clock)]);
+      return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason,name_search:(await deviceSettings(m)).name_search,display,today:todayPlan},200,
         renewed ? {"Set-Cookie":cookie(request,token,Math.floor((renewed-clock)/1000),"cdi_device")} : {});
     }
     if (!device) fail(403,"Ce poste doit être activé par le personnel.");
@@ -590,6 +591,18 @@ async function dispatch(request, env, options) {
       audit(m,me,"horaires","Modification des réglages","Borne et planning",before,after),
     ]);
     return json(await kioskSettings(m));
+  }
+
+  if (path === "/api/gestion/borne/affichage" && ["GET", "PATCH"].includes(method)) {
+    need(...(method === "GET" ? ["reglages", "reglages_voir"] : ["reglages"]));
+    if (method === "GET") return json(await displaySettings(m));
+    const before=await displaySettings(m);
+    const after=checkDisplay({...before,...(await payload(request))},fail);
+    await m.batch([
+      m.stmt("INSERT INTO kiosk_display (id,settings) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET settings=excluded.settings",JSON.stringify(after)),
+      audit(m,me,"horaires","Modification de l’affichage de la borne","Borne",before,after),
+    ]);
+    return json(after);
   }
 
   if (path === "/api/gestion/horaires" && ["GET","PATCH"].includes(method)) {

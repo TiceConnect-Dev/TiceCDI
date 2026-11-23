@@ -525,6 +525,12 @@ async function devicesTest(host) {
   // Recherche par nom pour les élèves sans carte : prénom et initiale seulement, sélection liée au poste.
   await host.post("/gestion/import",{rows:[{first_name:"Zélie",last_name:"Bérangère-Test",class_name:"Classe Borne "+host.kind}]});
   const kiosk=(path,body)=>fetch(host.route("/api/borne/"+path),{method:"POST",headers:{"Content-Type":"application/json",Cookie:device},body:JSON.stringify(body)});
+  // Affichage de la borne : réglages validés et transmis à la borne avec le planning du jour.
+  await host.patch("/gestion/borne/affichage",{announcements:[{text:"Test",tone:"rose"}]},host.admin,400);
+  const shown=await host.patch("/gestion/borne/affichage",{announcements:[{text:"  Nouveaux livres  ",tone:"evenement"}],theme:"horaire",idle_delay:120});
+  assert.deepEqual(shown.announcements,[{text:"Nouveaux livres",tone:"evenement"}]); assert.equal(shown.theme,"horaire");
+  const kioskState=await (await fetch(host.route("/api/borne/reglages"),{headers:{Cookie:device}})).json();
+  assert.equal(kioskState.display.idle_delay,120); assert.ok(Array.isArray(kioskState.today.rows) && Array.isArray(kioskState.today.hours));
   let search=await (await kiosk("recherche",{q:"z"})).json();
   assert.equal(search.rows.length,0); assert.equal(search.short,true);
   search=await (await kiosk("recherche",{q:"ze"})).json(); // deux lettres suffisent
