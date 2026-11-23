@@ -212,3 +212,75 @@ function journal(Store $db, int $clock): array
     $tail = $db->all("SELECT * FROM audit_log WHERE at=? AND (?='' OR area=?) ORDER BY id DESC", $edge, $area, $area);
     return ['rows' => [...$head, ...$tail], 'next' => $edge];
 }
+
+/** Réinitialisation des données (administrateurs) : même règle que cdi/reset.mjs. */
+const RESET_TARGETS = ['statistiques', 'appels', 'passages', 'alertes', 'journal'];
+const RESET_LABELS = ['statistiques' => 'Statistiques', 'appels' => 'Fiches d’appel', 'passages' => 'Passages', 'alertes' => 'Alertes', 'journal' => 'Journal'];
+
+function checkReset(array $data, string $today): array
+{
+    $targets = is_array($data['targets'] ?? null) ? array_values(array_unique($data['targets'], SORT_REGULAR)) : [];
+    if (!$targets || array_diff($targets, RESET_TARGETS) || array_filter($targets, static fn ($target) => !is_string($target))) {
+        fail(400, 'Choisissez au moins une donnée à vider.');
+    }
+    if (($data['confirm'] ?? null) !== 'VIDER') {
+        fail(400, 'Tapez VIDER pour confirmer.');
+    }
+    if (($data['scope'] ?? null) === 'tout') {
+        return ['targets' => $targets, 'all' => true, 'from' => '0000-01-01', 'to' => '9999-12-31', 'start' => 0, 'end' => PHP_INT_MAX];
+    }
+    $from = $data['from'] ?? null;
+    $to = $data['to'] ?? null;
+    if (($data['scope'] ?? null) !== 'periode' || !validDay($from) || !validDay($to) || $from > $to) {
+        fail(400, 'Choisissez une période valide.');
+    }
+    if ($from > $today) {
+        fail(400, 'La période doit commencer au plus tard aujourd’hui.');
+    }
+    $next = (new DateTimeImmutable($to . 'T12:00:00Z'))->modify('+1 day')->format('Y-m-d');
+    return ['targets' => $targets, 'all' => false, 'from' => $from, 'to' => $to,
+        'start' => midnight($from)->getTimestamp() * 1000, 'end' => midnight($next)->getTimestamp() * 1000];
+}
+
+function resetCounts(Store $db, array $plan): array
+{
+    $count = static fn (string $sql, ...$params) => (int) $db->one($sql, ...$params)['n'];
+    return [
+        'statistiques' => $count('SELECT count(*) AS n FROM daily_statistics WHERE day BETWEEN ? AND ?', $plan['from'], $plan['to']),
+        'passages' => $count('SELECT count(*) AS n FROM visits WHERE starts_at>=? AND starts_at<?', $plan['start'], $plan['end']),
+        'appels' => $count('SELECT count(*) AS n FROM attendance WHERE started_at>=? AND started_at<?', $plan['start'], $plan['end']),
+        'alertes' => $count('SELECT count(*) AS n FROM kiosk_events WHERE at>=? AND at<?', $plan['start'], $plan['end']),
+        'journal' => $count('SELECT count(*) AS n FROM audit_log WHERE at>=? AND at<?', $plan['start'], $plan['end']),
+    ];
+}
+
+function resetData(Store $db, array $me, array $data, string $today): array
+{
+    $plan = checkReset($data, $today);
+    $counts = resetCounts($db, $plan);
+    $has = static fn (string $target) => in_array($target, $plan['targets'], true);
+    [$from, $to, $start, $end] = [$plan['from'], $plan['to'], $plan['start'], $plan['end']];
+    if ($has('statistiques')) {
+        $db->run('DELETE FROM daily_statistics WHERE day BETWEEN ? AND ?', $from, $to);
+        $db->run('DELETE FROM archived_breakdown WHERE day BETWEEN ? AND ?', $from, $to);
+    }
+    if ($has('passages')) {
+        $db->run('DELETE FROM visits WHERE starts_at>=? AND starts_at<?', $start, $end);
+    }
+    if ($has('appels')) {
+        $db->run('UPDATE visits SET attendance_id=NULL WHERE attendance_id IN (SELECT id FROM attendance WHERE started_at>=? AND started_at<?)', $start, $end);
+        $db->run('DELETE FROM attendance_members WHERE attendance_id IN (SELECT id FROM attendance WHERE started_at>=? AND started_at<?)', $start, $end);
+        $db->run('DELETE FROM attendance WHERE started_at>=? AND started_at<?', $start, $end);
+    }
+    if ($has('alertes')) {
+        $db->run('DELETE FROM kiosk_events WHERE at>=? AND at<?', $start, $end);
+    }
+    if ($has('journal')) {
+        $db->run('DELETE FROM audit_log WHERE at>=? AND at<?', $start, $end);
+    }
+    // L’entrée du journal est écrite après la suppression : la réinitialisation reste tracée même si le journal est vidé.
+    audit($db, $me, 'confidentialite', 'Réinitialisation des données', 'Données', null,
+        ['donnees' => implode(', ', array_map(static fn ($target) => RESET_LABELS[$target], $plan['targets'])), 'periode' => $plan['all'] ? 'Tout' : $from . ' au ' . $to]);
+    return ['counts' => array_intersect_key($counts, array_flip($plan['targets']))];
+}
+

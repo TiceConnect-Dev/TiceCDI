@@ -864,3 +864,14 @@ body.is-navigating::before{content:"";position:fixed;top:0;left:0;z-index:50;hei
 .reason-chip{display:inline-flex;align-items:center;max-width:190px;padding:4px 10px;border-radius:999px;border:1px solid #c9d3f5;background:var(--pale);color:var(--blue);font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .reason-chip.is-empty{background:none;border-style:dashed;color:var(--muted);font-weight:600}
 .reason-chip:hover{border-color:var(--blue)}
+/* Réinitialisation des données (v1.16). */
+.reset-backup{display:flex;align-items:center;gap:8px;margin:12px 0;color:var(--muted);font-weight:600}
+.reset-form{max-width:820px;margin-top:12px}
+.reset-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.reset-item+.reset-item{margin-top:8px}
+.reset-item:has(input:checked){border-color:#d9434e;background:#fff5f6}
+.reset-item span{display:grid}
+.reset-item small{color:var(--muted)}
+.reset-item em{font-style:normal;font-weight:700;color:var(--muted);white-space:nowrap}
+.reset-confirm input{max-width:220px;text-transform:uppercase;letter-spacing:.08em}
+.reset-form .btn.danger{background:#c62a35;color:#fff;border-color:#c62a35}.reset-form .btn.danger:hover{background:#a8202a}.reset-form .btn.danger:disabled{opacity:.45;cursor:not-allowed}

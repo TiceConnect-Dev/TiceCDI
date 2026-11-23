@@ -50,6 +50,7 @@ const assets = new Map([
   ["qr.js", "text/javascript; charset=utf-8"],
   ["charts.js", "text/javascript; charset=utf-8"],
   ["live.js", "text/javascript; charset=utf-8"],
+  ["reset.js", "text/javascript; charset=utf-8"],
   ["offline.js", "text/javascript; charset=utf-8"],
   ["theme-dark.css", "text/css; charset=utf-8"],
   ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],

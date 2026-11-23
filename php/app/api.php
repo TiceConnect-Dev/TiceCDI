@@ -449,6 +449,17 @@ function managementResource(Store $db, string $path, string $method, int $clock)
         need($me, 'journal');
         return journal($db, $clock);
     }
+    if ($path === '/api/gestion/reinitialisation' && in_array($method, ['GET', 'POST'], true)) {
+        if (!$me['admin']) {
+            fail(403, 'La réinitialisation est réservée aux administrateurs.');
+        }
+        $today = parisClock($clock)['day'];
+        if ($method === 'GET') {
+            return resetCounts($db, checkReset(['targets' => RESET_TARGETS, 'confirm' => 'VIDER', 'scope' => q('scope', 'tout') === 'periode' ? 'periode' : 'tout',
+                'from' => q('from', ''), 'to' => q('to', '')], $today));
+        }
+        return resetData($db, $me, requestData(), $today);
+    }
     if ($path === '/api/gestion/annees' && in_array($method, ['GET', 'POST'], true)) {
         adminOnly($me);
         $day = parisClock($clock)['day'];

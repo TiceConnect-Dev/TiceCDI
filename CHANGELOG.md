@@ -1,5 +1,10 @@
 # Journal des versions
 
+## v1.16.0 · Réinitialiser les données
+
+- Nouvelle page **Administration → Réinitialiser** (administrateurs) : vider les statistiques, les fiches d’appel, les passages des élèves, les alertes et le journal, **en totalité ou sur une période**. Le nombre d’éléments concernés s’affiche avant validation ; confirmation en tapant `VIDER` ; lien vers la sauvegarde conseillée.
+- Les comptes, les élèves, les classes, le planning et les réglages ne sont jamais supprimés. Une ligne « Réinitialisation des données » est toujours conservée au journal.
+
 ## v1.15.0 · Tableau de bord en direct, alertes et arrivée manuelle
 
 - **En direct** (nouvelle page d’accueil de la gestion pour les droits Présences) : élèves présents et jauge des places, état de la borne, passages du jour, créneau en cours et suivant, dernières arrivées, départs dans les 15 minutes, classes présentes, planning du jour et alertes. Actualisé toutes les 10 secondes.
