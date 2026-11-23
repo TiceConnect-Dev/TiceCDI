@@ -97,6 +97,10 @@ function closure(Store $db, int $clock, array $settings): string
         $now['day'], $now['minute'], $now['minute'])) {
         return 'Le CDI est fermé exceptionnellement sur ce créneau.';
     }
+    if ($db->one('SELECT id FROM planning WHERE day=? AND students_allowed=0 AND start_min<=? AND end_min>?',
+        $now['day'], $now['minute'], $now['minute'])) {
+        return 'Le CDI accueille une séance sur ce créneau : la borne n’accepte pas d’autres élèves.';
+    }
     if (($db->one('SELECT use_hours FROM kiosk_settings WHERE id=1')['use_hours'] ?? 0) === 1 &&
         !$db->one('SELECT 1 FROM opening_hours WHERE weekday=? AND start_min<=? AND end_min>?',
             $now['weekday'], $now['minute'], $now['minute'])) {
@@ -116,7 +120,7 @@ function validateMonday(mixed $day): string
 function weekPlanning(Store $db, string $start, int $clock, bool $internal = false): array
 {
     $private = $internal ? ',p.class_id,p.group_id,p.notes,(SELECT id FROM attendance WHERE plan_id=p.id) AS attendance_id' : '';
-    $rows = $db->all("SELECT p.id,p.day,p.start_min,p.end_min,p.title,p.kind,coalesce(c.name,g.name) AS class_name $private
+    $rows = $db->all("SELECT p.id,p.day,p.start_min,p.end_min,p.title,p.kind,p.students_allowed,coalesce(c.name,g.name) AS class_name $private
         FROM planning p LEFT JOIN classes c ON c.id=p.class_id LEFT JOIN school_groups g ON g.id=p.group_id
         WHERE p.day>=? AND p.day<? ORDER BY p.day,p.start_min", $start, shiftDay($start, 7));
     return openingHours($db) + ['rows' => $rows, 'start' => $start, 'end' => shiftDay($start, 6), 'now' => parisClock($clock)];
@@ -144,10 +148,15 @@ function changeSlot(Store $db, array $me, ?string $id, array $data): array
     if (mb_strlen($notes, 'UTF-8') > 600) {
         fail(400, 'Les notes peuvent contenir jusqu’à 600 caractères.');
     }
-    $before = $id === null ? null : $db->one('SELECT day,start_min,end_min,title,kind,class_id,group_id,notes FROM planning WHERE id=?', $id);
+    $before = $id === null ? null : $db->one('SELECT day,start_min,end_min,title,kind,class_id,group_id,notes,students_allowed FROM planning WHERE id=?', $id);
     if ($id !== null && !$before) {
         fail(404, 'Créneau introuvable.');
     }
+    if (array_key_exists('students_allowed', $data) && !is_bool($data['students_allowed'])) {
+        fail(400, 'Indiquez si la borne accepte les élèves pendant ce créneau.');
+    }
+    // Fermeture : jamais d’élèves. Sinon le choix du formulaire, ou la valeur précédente, ou « accepter » par défaut.
+    $students = $kind === 'fermeture' ? 0 : (array_key_exists('students_allowed', $data) ? (int) $data['students_allowed'] : (int) ($before['students_allowed'] ?? 1));
     if ($class !== null && !$db->one('SELECT id FROM classes WHERE id=?', $class)) {
         fail(400, 'La classe sélectionnée est introuvable.');
     }
@@ -159,12 +168,12 @@ function changeSlot(Store $db, array $me, ?string $id, array $data): array
         fail(409, 'Un créneau occupe déjà tout ou partie de cette plage.');
     }
     $after = ['day' => $day, 'start_min' => $start, 'end_min' => $end, 'title' => $title, 'kind' => $kind,
-        'class_id' => $class, 'group_id' => $group, 'notes' => $notes];
+        'class_id' => $class, 'group_id' => $group, 'notes' => $notes, 'students_allowed' => $students];
     if ($id === null) {
-        $db->run('INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,group_id,notes) VALUES (?,?,?,?,?,?,?,?,?)',
+        $db->run('INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,group_id,notes,students_allowed) VALUES (?,?,?,?,?,?,?,?,?,?)',
             uid(), ...array_values($after));
     } else {
-        $db->run('UPDATE planning SET day=?,start_min=?,end_min=?,title=?,kind=?,class_id=?,group_id=?,notes=? WHERE id=?',
+        $db->run('UPDATE planning SET day=?,start_min=?,end_min=?,title=?,kind=?,class_id=?,group_id=?,notes=?,students_allowed=? WHERE id=?',
             ...[...array_values($after), $id]);
     }
     audit($db, $me, 'planning', $id === null ? 'Création du créneau' : 'Modification du créneau', $title, $before, $after);
@@ -178,8 +187,8 @@ function duplicateWeek(Store $db, array $me, string $start): array
     }
     $end = shiftDay($start, 7);
     $count = $db->one('SELECT count(*) AS total FROM planning WHERE day>=? AND day<?', $start, $end)['total'];
-    $added = $db->run("INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,notes,group_id)
-        SELECT lower(hex(randomblob(16))),date(p.day,'+7 days'),p.start_min,p.end_min,p.title,p.kind,p.class_id,p.notes,p.group_id
+    $added = $db->run("INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,notes,group_id,students_allowed)
+        SELECT lower(hex(randomblob(16))),date(p.day,'+7 days'),p.start_min,p.end_min,p.title,p.kind,p.class_id,p.notes,p.group_id,p.students_allowed
         FROM planning p WHERE p.day>=? AND p.day<? AND NOT EXISTS (SELECT 1 FROM planning q
           WHERE q.day=date(p.day,'+7 days') AND q.start_min<p.end_min AND q.end_min>p.start_min)", $start, $end);
     if ($added > 0) {

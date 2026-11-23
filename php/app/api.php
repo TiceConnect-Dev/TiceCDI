@@ -115,8 +115,9 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         $planning = weekPlanning($db, validateMonday(q('week')), $clock);
         $planning['rows'] = array_map(static function ($slot): array {
             $closed = $slot['kind'] === 'fermeture';
+            $refused = !$closed && (int) $slot['students_allowed'] === 0;
             return array_intersect_key($slot, array_flip(['day','start_min','end_min'])) +
-                ['kind' => $closed ? 'fermeture' : 'reservation', 'title' => $closed ? 'Fermé' : 'Réservé', 'class_name' => null];
+                ['kind' => $closed || $refused ? 'fermeture' : 'reservation', 'title' => $closed ? 'Fermé' : ($refused ? 'Réservé · fermé aux élèves' : 'Réservé'), 'class_name' => null];
         }, $planning['rows']);
         // Occupation en temps réel pour l’écran public : uniquement des nombres agrégés.
         $planning['occupancy'] = occupancy($db, $clock);

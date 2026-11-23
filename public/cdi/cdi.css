@@ -790,3 +790,5 @@ body.is-navigating::before{content:"";position:fixed;top:0;left:0;z-index:50;hei
 .borne.is-closed .borne-idle{cursor:default}
 .borne.is-closed .borne-idle-hint{display:none}
 .borne.is-closed .borne-idle .borne-rules{display:none}
+.cal-refused{display:flex;align-items:center;gap:4px;margin-top:2px;font-style:normal;font-size:.72rem;font-weight:700;color:#8b1720}
+.cal-refused .icon{width:12px;height:12px}

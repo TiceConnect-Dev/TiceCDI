@@ -14,7 +14,7 @@ const schema = {
     unique: ["id", "code", "external_id"], references: {class_id:"classes"} },
   school_groups: { text: "id name normalized", integer: "active", unique: ["id", "normalized"] },
   group_members: { text: "group_id student_id", unique: ["group_id student_id"], references: {group_id:"school_groups",student_id:"students"} },
-  planning: { text: "id day title kind class_id? notes group_id?", integer: "start_min end_min", unique: ["id"],
+  planning: { text: "id day title kind class_id? notes group_id?", integer: "start_min end_min students_allowed", unique: ["id"],
     references: {class_id:"classes",group_id:"school_groups"} },
   attendance: { text: "id plan_id? roster_kind roster_id roster_name title actor", integer: "started_at ended_at? duration",
     unique: ["id", "plan_id"], references: {plan_id:"planning"} },
@@ -48,7 +48,7 @@ const validRow = {
   students: row => flag(row.active),
   school_groups: row => flag(row.active),
   planning: row => validDay(row.day) && validSpan(row)
-    && scheduleKinds.includes(row.kind),
+    && scheduleKinds.includes(row.kind) && flag(row.students_allowed),
   attendance: row => ["classe","groupe"].includes(row.roster_kind) && row.duration >= 5 && row.duration <= 240,
   attendance_members: row => ["present","retard","absent","excuse","attente","exclu"].includes(row.status),
   visits: row => row.starts_at < row.expires_at && ["individuel","classe","groupe"].includes(row.source),
@@ -84,7 +84,14 @@ export async function exportBackup(m, clock, fail) {
   return serialized;
 }
 
+// Sauvegardes antérieures à la v1.14 : l’accès des élèves aux créneaux est déduit du type (fermeture = refusé).
+function upgradeBackup(backup) {
+  for (const row of Array.isArray(backup?.tables?.planning) ? backup.tables.planning : []) {
+    if (object(row) && !Object.hasOwn(row, "students_allowed")) row.students_allowed = row.kind === "fermeture" ? 0 : 1;
+  }
+}
 export function inspectBackup(backup, fail) {
+  upgradeBackup(backup);
   if (!object(backup) || backup.format !== FORMAT || backup.version !== VERSION
     || typeof backup.created_at !== "string" || !Number.isFinite(Date.parse(backup.created_at))
     || !object(backup.tables) || Object.keys(backup.tables).length !== tables.length) {

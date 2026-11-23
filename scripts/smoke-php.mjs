@@ -539,6 +539,19 @@ async function devicesTest(host) {
   assert.equal(search.rows.length,1);
   assert.equal(search.rows[0].label,"Zélie B."); assert.equal(search.rows[0].class_name,"Classe Borne "+host.kind);
   assert.ok(!("student_id" in search.rows[0]) && !("code" in search.rows[0]));
+  // Créneau « élèves refusés » en cours : la borne refuse l’entrée, puis l’accepte une fois le créneau supprimé.
+  const nowParis=parisClock(Date.now()), slotMonday=shiftDay(nowParis.day,1-nowParis.weekday);
+  if(nowParis.minute>=5 && nowParis.minute<=1400) {
+    const slot={day:nowParis.day,start_min:nowParis.minute-5,end_min:nowParis.minute+30,title:"Séance fermée",kind:"cours",students_allowed:false};
+    db.prepare("DELETE FROM planning WHERE day=?").run(nowParis.day);
+    await host.post("/gestion/planning",slot);
+    const planned=(await host.get("/gestion/planning?week="+slotMonday)).rows.find(row=>row.title==="Séance fermée");
+    assert.equal(planned.students_allowed,0);
+    const refused=await kiosk("entree",{ref:search.rows[0].ref}); const refusedBody=await refused.json();
+    assert.equal(refused.status,409,JSON.stringify(refusedBody)); assert.match(refusedBody.error,/séance/);
+    await host.call("/gestion/planning/"+planned.id,{method:"DELETE"});
+    search=await (await kiosk("recherche",{q:"zelie berang"})).json();
+  }
   const checked=await kiosk("entree",{ref:search.rows[0].ref});
   const checkedBody=await checked.json();
   assert.equal(checked.status,200,JSON.stringify(checkedBody)); assert.ok(checkedBody.expires_at>Date.now());

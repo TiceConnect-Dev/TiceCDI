@@ -1,5 +1,11 @@
 # Journal des versions
 
+## v1.14.0 · Accès des élèves pendant un créneau
+
+- Chaque créneau du planning indique s’il accepte les élèves au CDI. Case décochée : la borne refuse les entrées pendant ce créneau (« Le CDI accueille une séance… »), les sorties restent possibles. Une fermeture exceptionnelle refuse toujours.
+- Le planning signale ces créneaux (« Borne fermée aux élèves »), comme l’écran public et la frise du jour de la borne.
+- Migration `0012_planning_students.sql` : les créneaux existants acceptent les élèves, sauf les fermetures. Les anciennes sauvegardes se restaurent avec la même règle.
+
 ## v1.13.3 · Saisie toujours prête sur la borne
 
 - Carte refusée : le champ se vide aussitôt et la même carte peut être rescannée.

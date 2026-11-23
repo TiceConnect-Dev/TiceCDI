@@ -43,7 +43,8 @@ function calendar(data,{editor=false,oneDay=false,hideWeekend=data.hide_weekend}
     const windows=hours.map(row=>`<div class="cal-open" data-y="${marker(row.start_min)}" data-height="${(row.end_min-row.start_min)/range*100}" aria-hidden="true"></div>`).join("");
     const slots=rows.map(row=>{
       const title=`${span(row)} · ${row.title}${row.class_name ? " · "+row.class_name : ""}`;
-      const contained=`<div class="cal-meta"><time>${span(row)}</time>${row.class_name?`<span>${e(row.class_name)}</span>`:""}</div><strong>${e(row.title)}</strong>`;
+      const refused=row.students_allowed===0 && row.kind!=="fermeture";
+      const contained=`<div class="cal-meta"><time>${span(row)}</time>${row.class_name?`<span>${e(row.class_name)}</span>`:""}</div><strong>${e(row.title)}</strong>${refused?`<em class="cal-refused">${icon("lock")} Borne fermée aux élèves</em>`:""}`;
       const attrs=`class="cal-slot cal-${row.kind}" data-y="${marker(row.start_min)}" data-height="${(row.end_min-row.start_min)/range*100}" title="${e(title)}"`;
       return editor ? `<button type="button" draggable="true" data-slot="${e(row.id)}" aria-label="${e(title)}" ${attrs}>${contained}</button>` : `<article ${attrs}>${contained}</article>`;
     }).join("");
@@ -58,7 +59,7 @@ function calendar(data,{editor=false,oneDay=false,hideWeekend=data.hide_weekend}
 function accessiblePlanning(data,days,includeDetails) {
   const {first,last}=timelineBounds(data,days);
   const rows=days.flatMap(item=>timelineForDay(data,item,first,last).map(row=>{
-    const state=row.event ? row.event.kind==="fermeture"?"Fermé":"Réservé" : {open:"Ouvert",closed:"Fermé",unknown:"Horaires à définir"}[row.state];
+    const state=row.event ? row.event.kind==="fermeture"?"Fermé":row.event.students_allowed===0?"Réservé · borne fermée aux élèves":"Réservé" : {open:"Ouvert",closed:"Fermé",unknown:"Horaires à définir"}[row.state];
     const details=includeDetails && row.event ? " · "+row.event.title+(row.event.class_name?" · "+row.event.class_name:"") : "";
     return `<tr><th scope="row">${item.name} ${shortDate(item.date)}</th><td>${span(row)}</td><td>${e(state+details)}</td></tr>`;
   }));
@@ -179,18 +180,30 @@ export async function renderPlanning(target, context) {
       <div class="form-grid">
         <label class="field"><span>Début</span><input type="time" name="start" required value="${timeLabel(slot?.start_min ?? 540)}"></label>
         <label class="field"><span>Fin</span><input type="time" name="end" required value="${settingsTime(slot?.end_min ?? 600)}"></label></div>
-      <p class="hint">Un créneau de fermeture exceptionnelle bloque le pointage sur la borne pendant cette plage.</p>
+      <label class="check-line" id="students-line"><input type="checkbox" name="students_allowed" ${slot?.students_allowed===0?"":"checked"}> Accepter les élèves au CDI pendant ce créneau</label>
+      <p class="hint" id="students-hint"></p>
       <label class="field"><span>Notes internes</span><textarea name="notes" maxlength="600">${e(slot?.notes)}</textarea><small>Visibles uniquement dans l’espace de gestion.</small></label>
       ${slot ? `<div class="button-row">${canCheckIn ? button(slot.attendance_id?"Ouvrir la fiche d’appel":"Faire l’appel","users",'data-checkin') : ""}
         ${button("Supprimer le créneau","trash",'data-remove',"danger")}</div>` : ""}`,slot?"Enregistrer":"Ajouter",async form=>{
         const fields=Object.fromEntries(new FormData(form));
         const [kind,id]=fields.roster.split(":");
         await api("/gestion/planning"+(slot?"/"+slot.id:""),slot?"PATCH":"POST",
-          {...fields,class_id:kind==="classe"?id:null,group_id:kind==="groupe"?id:null,start_min:timeNumber(fields.start),end_min:slot?.end_min===1440 && fields.end==="23:59" ? 1440 : timeNumber(fields.end)});
+          {...fields,students_allowed:fields.kind!=="fermeture" && form.elements.students_allowed.checked,class_id:kind==="classe"?id:null,group_id:kind==="groupe"?id:null,start_min:timeNumber(fields.start),end_min:slot?.end_min===1440 && fields.end==="23:59" ? 1440 : timeNumber(fields.end)});
         start=weekStart(fields.day);
       },{
         success:slot?"Créneau modifié.":"Créneau ajouté.",refresh:()=>load(start,true),
         ready:form=>{
+          // Accès des élèves : la borne refuse les entrées si la case est décochée ; une fermeture refuse toujours.
+          const syncStudents=()=>{
+            const closing=form.elements.kind.value==="fermeture";
+            $("#students-line",form).hidden=closing;
+            $("#students-hint",form).textContent=closing ? "Une fermeture exceptionnelle bloque le pointage sur la borne pendant cette plage."
+              : form.elements.students_allowed.checked ? "La borne fonctionne normalement : les élèves peuvent entrer pendant ce créneau."
+              : "La borne refuse les entrées pendant ce créneau (les sorties restent possibles).";
+          };
+          form.elements.kind.addEventListener("change",syncStudents);
+          form.elements.students_allowed.addEventListener("change",syncStudents);
+          syncStudents();
           const checkIn=$("[data-checkin]",form);
           checkIn?.addEventListener("click",()=>{
             form.closest("dialog").close();

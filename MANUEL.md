@@ -35,6 +35,10 @@ L’administrateur choisit sur la même page la **durée d’activation** (12 he
 
 Sur la borne, l’élève tape son nom ou son prénom dans le champ unique : dès 2 lettres, les élèves correspondants s’affichent (prénom, initiale du nom et classe, 6 au plus), les plus proches en premier. Les mots se tapent dans n’importe quel ordre (« martin lina »), un mot peut désigner la classe (« lina 2nde3 ») et, si rien ne correspond exactement, la borne propose les noms proches (une ou deux fautes de frappe). **Toucher son nom enregistre l’entrée immédiatement** ; le bouton **Sortir** à côté du nom enregistre la sortie. Avec une carte CDI, l’élève la scanne (douchette Code 128 en mode clavier, ou code tapé) : il est **enregistré automatiquement**, en entrée au premier passage et en sortie au suivant. Un double scan dans les 10 secondes est ignoré. La borne affiche l’état du CDI (ouvert, fermé, places libres), efface la saisie après chaque pointage et ne montre ni annuaire ni liste des présents. Elle ne contient aucun lien vers l’espace du personnel ni vers la notice (accessible depuis l’ENT et la page d’accueil). La recherche par nom se désactive dans **Postes de borne** (la borne n’accepte alors que les cartes).
 
+### Accès des élèves pendant un créneau
+
+Dans le planning, chaque créneau porte la case **Accepter les élèves au CDI pendant ce créneau**. Décochée, la borne refuse les entrées pendant la plage (les sorties restent possibles) et le créneau affiche « Borne fermée aux élèves ». Une fermeture exceptionnelle refuse toujours les élèves. L’arrivée groupée d’une classe par le personnel reste possible.
+
 ### Affichage de la borne
 
 Dans **Réglages et horaires → Affichage de la borne** : places libres en grand (avec une capacité renseignée), planning du jour, animation de lecture, durée de la confirmation plein écran, annonces en couleur (six au maximum, à tour de rôle), règles du CDI (une par ligne), écran de repos (délai de 30 secondes à 10 minutes) et thème (clair, sombre ou sombre entre deux heures). Les changements s’appliquent sur la borne en quelques secondes, sans la recharger.
