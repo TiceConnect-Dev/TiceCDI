@@ -59,7 +59,7 @@ function kiosk() {
         <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
         <form id="entry-form" autocomplete="off" hidden>
           <label class="borne-label" for="entry-input" id="entry-label">Carte CDI, nom ou prénom</label>
-          <div class="borne-scan">${icon("search")}<input id="entry-input" type="text" maxlength="60" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Ex. Lina, Martin ou Lina 2nde 3" required></div>
+          <div class="borne-scan">${icon("search")}<input id="entry-input" type="text" autofocus maxlength="60" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Ex. Lina, Martin ou Lina 2nde 3" required></div>
           <div id="name-results" class="borne-results" role="list" aria-live="polite"></div>
           <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
         </form>
@@ -315,6 +315,8 @@ function kiosk() {
       confirmScreen("error","Passage non enregistré",error.message);
       show(error.message,"error");
       results.querySelectorAll("button").forEach(button=>button.disabled=false);
+      // Carte refusée : le champ se vide pour le scan suivant (la même carte peut être rescannée aussitôt).
+      if(data.code) { input.value=""; lastCard=""; syncMode(); }
     }
     finally {
       busy=false;
@@ -337,9 +339,16 @@ function kiosk() {
     if(!card) { confirmScreen("error","Carte illisible","Scanne à nouveau ta carte."); input.value=""; syncMode(); return; }
     checkIn("auto",{code:card,two_hours:two.checked});
   });
+  // Le champ reçoit toujours la saisie : à l’ouverture, au retour sur la page et après un toucher hors bouton.
+  const focusInput=()=>{ if(!form.hidden && document.activeElement!==input && !document.activeElement?.matches?.("input,select,textarea")) input.focus({preventScroll:true}); };
+  addEventListener("focus",focusInput);
+  addEventListener("pageshow",focusInput);
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) focusInput(); });
+  root.addEventListener("pointerup",event=>{ if(!event.target.closest("button,label,input,a")) setTimeout(focusInput,0); });
+  setInterval(focusInput,2000);
   tick();
   setInterval(tick,10_000);
-  refresh();
+  refresh().then(focusInput);
   setInterval(refresh,5000);
   armIdle();
   kioskApp();

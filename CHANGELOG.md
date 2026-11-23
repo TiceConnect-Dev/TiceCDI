@@ -1,5 +1,10 @@
 # Journal des versions
 
+## v1.13.3 · Saisie toujours prête sur la borne
+
+- Carte refusée : le champ se vide aussitôt et la même carte peut être rescannée.
+- Le champ de saisie est sélectionné automatiquement à l’ouverture, au retour sur la page et après un toucher hors bouton : plus besoin de cliquer avant de scanner.
+
 ## v1.13.2 · Borne fermée
 
 - CDI fermé : la borne reste sur l’écran de repos (horloge, « CDI fermé » et motif), sans annonce, règles ni « Touche l’écran ». Un scan de sortie reste possible.
