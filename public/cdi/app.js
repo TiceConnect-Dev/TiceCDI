@@ -64,7 +64,6 @@ function kiosk() {
         <div id="entry-message" class="borne-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
       </section>
     </main>
-    <footer class="borne-foot"><button type="button" class="borne-tool" id="kiosk-install" hidden>${icon("download")}<span>Installer la borne</span></button></footer>
   </div>`;
   const clockFormat=new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
   const dateFormat=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"long",timeZone:"Europe/Paris"});
@@ -205,25 +204,10 @@ function kiosk() {
   kioskApp();
 }
 
-// Borne en application (PWA) : installation, écran toujours allumé, reconnexion et mise à jour automatiques.
-let installPrompt;
-addEventListener("beforeinstallprompt",event=>{
-  event.preventDefault();
-  installPrompt=event;
-  const control=$("#kiosk-install");
-  if(control) control.hidden=false;
-});
+// Borne en application (PWA) : écran toujours allumé, reconnexion et mise à jour automatiques.
+// L’installation passe par le menu du navigateur (aucun bouton sur la borne).
 function kioskApp() {
   navigator.serviceWorker?.register(urlFor("/sw.js")).catch(()=>{});
-  const install=$("#kiosk-install");
-  install.hidden=!installPrompt;
-  install.addEventListener("click",async()=>{
-    if(!installPrompt) return;
-    installPrompt.prompt();
-    await installPrompt.userChoice.catch(()=>null);
-    installPrompt=null;
-    install.hidden=true;
-  });
   let lock=null;
   const keepAwake=async()=>{
     if(document.visibilityState!=="visible" || lock || !navigator.wakeLock) return;

@@ -37,11 +37,11 @@ Sur la borne, l’élève tape son nom ou son prénom dans le champ unique : dè
 
 ### Installer la borne comme application
 
-En HTTPS, la borne peut être installée comme une application : après l’activation du poste, choisissez **Installer la borne** (Chrome, Edge) ou le menu du navigateur **Installer l’application**. Elle s’ouvre alors en plein écran sur la page de pointage, garde l’écran allumé et affiche un bandeau si le réseau tombe. Si le serveur redémarre, une page **Connexion au serveur perdue** s’affiche et la borne revient seule dès que le service répond. Elle se recharge chaque nuit vers 4 h pour appliquer les mises à jour.
+En HTTPS, la borne peut être installée comme une application : après l’activation du poste, utilisez le menu du navigateur **Installer l’application** (Chrome, Edge). Elle s’ouvre alors en plein écran sur la page de pointage, garde l’écran allumé et affiche un bandeau si le réseau tombe. Si le serveur redémarre, une page **Connexion au serveur perdue** s’affiche et la borne revient seule dès que le service répond. Elle se recharge chaque nuit vers 4 h pour appliquer les mises à jour.
 
 ### Douchette et cartes
 
-La borne accepte une douchette Code 128 en mode clavier, même réglée en QWERTY sur un poste AZERTY (chiffres tapés « & é " ' ( … ») et même avec un préfixe d’identification (`]C0`) ou le verrouillage majuscule. Les cartes s’impriment deux par ligne : les barres, plus larges, sont lues sans difficulté par les douchettes d’entrée de gamme. Si une carte reste illisible, réimprimez-la depuis **Cartes codes-barres** à 100 % (sans « ajuster à la page »).
+La borne accepte une douchette Code 128 en mode clavier, même réglée en QWERTY sur un poste AZERTY (chiffres tapés « & é " ' ( … ») et même avec un préfixe d’identification (`]C0`) ou le verrouillage majuscule. Les cartes s’impriment trois par ligne, le code-barres occupant toute la largeur de la carte. Si une carte reste illisible, réimprimez-la depuis **Cartes codes-barres** à 100 % (sans « ajuster à la page »).
 
 ### Sécurité du compte
 
