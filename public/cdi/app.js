@@ -41,7 +41,7 @@ function home() {
 }
 
 function kiosk() {
-  // Borne élèves : page plein écran, sobre, sans liens vers l’espace du personnel.
+  // Borne élèves : page plein écran, sobre, tactile, sans liens vers l’espace du personnel.
   app.innerHTML=`<div class="borne" id="main">
     <header class="borne-top">
       <div class="borne-brand">${brand(true)}<div><b>CDI</b><span>Centre de documentation et d’information</span></div></div>
@@ -52,8 +52,10 @@ function kiosk() {
         <div class="borne-head">
           <div><h1 id="kiosk-title">Entrée et sortie du CDI</h1>
           <p id="borne-help">Scanne ta carte, ou tape ton nom puis sélectionne-le dans la liste.</p></div>
+          <div class="borne-places" id="borne-places" hidden></div>
           <div class="borne-status" id="borne-status" hidden></div>
         </div>
+        <div class="borne-news" id="borne-news" role="status" aria-live="polite" hidden></div>
         <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
         <form id="entry-form" autocomplete="off" hidden>
           <label class="borne-label" for="entry-input" id="entry-label">Carte CDI, nom ou prénom</label>
@@ -62,31 +64,50 @@ function kiosk() {
           <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
         </form>
         <div id="entry-message" class="borne-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div class="borne-day" id="borne-day" hidden></div>
+        <ul class="borne-rules" id="borne-rules" aria-label="Règles du CDI" hidden></ul>
       </section>
     </main>
+    <div class="borne-confirm" id="borne-confirm" role="alertdialog" aria-live="assertive" hidden></div>
+    <div class="borne-idle" id="borne-idle" hidden></div>
   </div>`;
+  const root=$(".borne"), card=$(".borne-card");
   const clockFormat=new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
   const dateFormat=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"long",timeZone:"Europe/Paris"});
-  const tick=()=>{ const now=new Date(); $("#borne-time").textContent=clockFormat.format(now); $("#borne-date").textContent=dateFormat.format(now); };
-  tick();
-  setInterval(tick,10_000);
+  const hourFormat=new Intl.DateTimeFormat("fr-FR",{hour:"numeric",hourCycle:"h23",timeZone:"Europe/Paris"});
+  let display={show_places:true,show_planning:true,scan_animation:true,confirm_seconds:4,announcements:[],rules:[],idle_enabled:true,idle_delay:60,theme:"clair",dark_from:17,dark_to:8};
+  let state={activated:false,open:false,places:null,capacity:null,occupied:0,today:null};
+  const tick=()=>{
+    const now=new Date();
+    $("#borne-time").textContent=clockFormat.format(now); $("#borne-date").textContent=dateFormat.format(now);
+    applyTheme();
+    if(!$("#borne-idle").hidden) renderIdle();
+  };
+  // Thème : clair, sombre ou sombre entre deux heures (réglé dans la gestion).
+  function applyTheme() {
+    const hour=Number(hourFormat.format(new Date()));
+    const {theme,dark_from:from,dark_to:to}=display;
+    const dark=theme==="sombre" || (theme==="horaire" && (from===to ? false : from<to ? hour>=from && hour<to : hour>=from || hour<to));
+    root.classList.toggle("borne-dark",dark);
+  }
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
-  // Un seul champ : un code CDI (douchette ou saisie) ou un nom. Toucher son nom enregistre directement l’entrée.
   const results=$("#name-results");
   // Début d’un code de carte (y compris tapé par une douchette en QWERTY sur un poste AZERTY).
   const isCode=(value)=>/^\s*(\]c0)?cdi/i.test(value) || Boolean(cardCode(value));
-  let nameSearchEnabled=true, searchTimer, searchVersion=0, idleTimer, rows=[];
+  let nameSearchEnabled=true, searchTimer, searchVersion=0, clearTimer, rows=[];
   function clearSearch() { rows=[]; results.replaceChildren(); input.value=""; syncMode(); }
   function syncMode() {
     const value=input.value.trim();
     const code=!nameSearchEnabled || !value || isCode(value);
     input.classList.toggle("is-code",nameSearchEnabled ? Boolean(value) && isCode(value) : true);
+    // Animation de lecture : la carte pulse dès que la douchette commence à taper un code.
+    card.classList.toggle("is-scanning",display.scan_animation && Boolean(value) && isCode(value));
     if(code) { rows=[]; results.replaceChildren(); }
   }
   let lastCard="", lastCardAt=0;
   input.addEventListener("input",()=>{
+    wake();
     syncMode();
-    // Carte scannée ou code complet : enregistrement immédiat (entrée, ou sortie si l’élève est déjà présent).
     const full=cardCode(input.value);
     if(full) {
       if(full===lastCard && Date.now()-lastCardAt<10_000) { input.value=""; syncMode(); show("Carte déjà prise en compte.","info"); return; }
@@ -95,8 +116,8 @@ function kiosk() {
       return;
     }
     clearTimeout(searchTimer);
-    clearTimeout(idleTimer);
-    idleTimer=setTimeout(clearSearch,60_000);
+    clearTimeout(clearTimer);
+    clearTimer=setTimeout(clearSearch,60_000);
     const query=input.value.trim();
     if(!nameSearchEnabled || !query || isCode(query)) return;
     if(query.replace(/\s/g,"").length<2) { results.innerHTML=`<p class="borne-hint">Continue à taper…</p>`; return; }
@@ -109,8 +130,8 @@ function kiosk() {
         results.innerHTML=rows.length
           ? (result.fuzzy?`<p class="borne-hint">Aucun nom exact. Est-ce l’un de ces élèves ?</p>`:"")
             +rows.map(row=>`<div class="borne-result" role="listitem">
-              <button type="button" class="borne-result-in" data-ref="${e(row.ref)}" data-direction="entree"><span class="borne-avatar" aria-hidden="true">${e(row.label.charAt(0))}</span><span class="borne-who"><strong>${e(row.label)}</strong><small>${e(row.class_name)}</small></span><em>${icon("login")} Entrer</em></button>
-              <button type="button" class="borne-result-out" data-ref="${e(row.ref)}" data-direction="sortie" aria-label="Sortie de ${e(row.label)}">${icon("logout")}<span>Sortir</span></button></div>`).join("")
+              <button type="button" class="borne-result-in" data-ref="${e(row.ref)}" data-name="${e(row.label)}" data-direction="entree"><span class="borne-avatar" aria-hidden="true">${e(row.label.charAt(0))}</span><span class="borne-who"><strong>${e(row.label)}</strong><small>${e(row.class_name)}</small></span><em>${icon("login")} Entrer</em></button>
+              <button type="button" class="borne-result-out" data-ref="${e(row.ref)}" data-name="${e(row.label)}" data-direction="sortie" aria-label="Sortie de ${e(row.label)}">${icon("logout")}<span>Sortir</span></button></div>`).join("")
             +(result.more?`<p class="borne-hint">D’autres élèves correspondent : ajoute ton nom ou ta classe.</p>`:"")
           : `<p class="borne-hint">Aucun élève trouvé. Vérifie l’orthographe ou adresse-toi au personnel.</p>`;
       } catch(error) { results.innerHTML=`<p class="borne-hint">${e(error.message)}</p>`; }
@@ -118,22 +139,113 @@ function kiosk() {
   });
   results.addEventListener("click",event=>{
     const choice=event.target.closest("[data-ref]");
-    if(choice) checkIn(choice.dataset.direction,{ref:choice.dataset.ref,two_hours:two.checked});
+    if(choice) checkIn(choice.dataset.direction,{ref:choice.dataset.ref,two_hours:two.checked},choice.dataset.name);
   });
-  // Plus de boutons Entrée / Sortie : la carte bascule seule, le nom se touche dans la liste.
-  let busy=false, expiry, refreshing=false, closed=false;
+  let busy=false, expiry, refreshing=false, closed=false, confirmTimer;
   function show(text,tone) {
     clearTimeout(expiry);
     message.className="borne-feedback "+(tone||"info");
     message.innerHTML=`${icon(tone==="success"?"check":tone==="error"?"warning":"info")}<p>${e(text)}</p>`;
     expiry=setTimeout(()=>{message.replaceChildren();message.className="borne-feedback";},6000);
   }
+  // Confirmation en grand, lisible de loin ; un toucher la ferme.
+  function confirmScreen(tone,title,detail) {
+    const box=$("#borne-confirm");
+    clearTimeout(confirmTimer);
+    box.dataset.tone=tone;
+    box.innerHTML=`<div class="borne-confirm-box"><span class="borne-confirm-icon">${icon(tone==="error"?"warning":tone==="out"?"logout":"check")}</span>
+      <strong>${e(title)}</strong>${detail?`<p>${e(detail)}</p>`:""}<i class="borne-confirm-timer"></i></div>`;
+    box.style.setProperty("--confirm",(tone==="error"?Math.max(display.confirm_seconds,4):display.confirm_seconds)+"s");
+    box.hidden=false;
+    confirmTimer=setTimeout(()=>{box.hidden=true;},(tone==="error"?Math.max(display.confirm_seconds,4):display.confirm_seconds)*1000);
+  }
+  $("#borne-confirm").addEventListener("pointerdown",()=>{ clearTimeout(confirmTimer); $("#borne-confirm").hidden=true; input.focus({preventScroll:true}); });
+
+  // Annonces : défilement toutes les 8 secondes, une couleur par annonce.
+  let newsIndex=0, newsKey="";
+  const toneIcon={info:"info",succes:"check",attention:"warning",alerte:"warning",evenement:"calendar"};
+  function renderNews() {
+    const list=display.announcements;
+    const box=$("#borne-news");
+    box.hidden=!list.length || !state.activated;
+    if(box.hidden) return;
+    const item=list[newsIndex%list.length];
+    box.dataset.tone=item.tone;
+    box.innerHTML=`${icon(toneIcon[item.tone]??"info")}<p>${e(item.text)}</p>${list.length>1?`<span class="borne-news-dots">${list.map((_,i)=>`<i class="${i===newsIndex%list.length?"on":""}"></i>`).join("")}</span>`:""}`;
+  }
+  setInterval(()=>{ if(display.announcements.length>1){ newsIndex++; renderNews(); if(!$("#borne-idle").hidden) renderIdle(); } },8000);
+
+  // Places libres en grand, avec une jauge.
+  function renderPlaces() {
+    const box=$("#borne-places"), status=$("#borne-status");
+    const gauge=display.show_places && state.activated && state.open && state.capacity;
+    box.hidden=!gauge;
+    status.hidden=!state.activated || Boolean(gauge);
+    const full=state.open && state.places===0;
+    status.dataset.state=!state.open||full?"closed":"open";
+    status.textContent=!state.open?"CDI fermé":full?"CDI complet":state.places===null||state.places===undefined?"CDI ouvert":`${state.places} place${state.places>1?"s":""} libre${state.places>1?"s":""}`;
+    if(!gauge) return;
+    const ratio=Math.min(1,state.occupied/state.capacity);
+    box.dataset.level=state.places===0?"full":ratio>=.85?"high":ratio>=.6?"mid":"low";
+    box.innerHTML=`<b>${state.places}</b><span>${state.places===0?"CDI complet":`place${state.places>1?"s":""} libre${state.places>1?"s":""}`}</span>
+      <progress max="${state.capacity}" value="${state.occupied}" aria-label="${state.occupied} élèves sur ${state.capacity} places"></progress><small>${state.occupied} / ${state.capacity}</small>`;
+  }
+
+  // Planning du jour : frise horaire (ouvert, réservé, fermé) et repère de l’heure actuelle.
+  const hm=n=>`${Math.floor(n/60)} h${n%60?String(n%60).padStart(2,"0"):""}`;
+  function renderDay() {
+    const box=$("#borne-day"), today=state.today;
+    const items=[...(today?.hours??[]).map(row=>({...row,kind:"ouvert"})),...(today?.rows??[])];
+    box.hidden=!display.show_planning || !state.activated || !items.length;
+    if(box.hidden) return;
+    const start=Math.min(...items.map(row=>row.start_min)), end=Math.max(...items.map(row=>row.end_min));
+    const span=Math.max(60,end-start), pos=n=>((n-start)/span*100).toFixed(2);
+    const upcoming=(today.rows??[]).find(row=>row.end_min>today.minute);
+    const now=today.minute>=start&&today.minute<=end?`<i class="borne-day-now" data-at="${pos(today.minute)}"></i>`:"";
+    box.innerHTML=`<div class="borne-day-head"><b>Aujourd’hui</b><span>${upcoming?`${upcoming.start_min<=today.minute?"En cours":"À venir"} : ${e(upcoming.title)} de ${hm(upcoming.start_min)} à ${hm(upcoming.end_min)}`:(today.hours?.length?`Ouvert ${today.hours.map(row=>`${hm(row.start_min)} – ${hm(row.end_min)}`).join(" · ")}`:"")}</span></div>
+      <div class="borne-day-bar">${items.map(row=>`<i class="seg-${row.kind}" data-from="${pos(row.start_min)}" data-to="${pos(row.end_min)}" title="${e((row.title??"Ouvert")+" "+hm(row.start_min)+" – "+hm(row.end_min))}"></i>`).join("")}${now}</div>
+      <div class="borne-day-scale"><span>${hm(start)}</span><span class="legend"><i class="seg-ouvert"></i>Ouvert<i class="seg-reservation"></i>Réservé<i class="seg-fermeture"></i>Fermé</span><span>${hm(end)}</span></div>`;
+    // Positions appliquées en JavaScript (politique CSP : pas de style en ligne dans le HTML).
+    box.querySelectorAll("[data-from]").forEach(node=>{ node.style.left=node.dataset.from+"%"; node.style.width=(node.dataset.to-node.dataset.from)+"%"; });
+    box.querySelectorAll("[data-at]").forEach(node=>{ node.style.left=node.dataset.at+"%"; });
+  }
+  function renderRules() {
+    const box=$("#borne-rules");
+    box.hidden=!state.activated || !display.rules.length;
+    box.innerHTML=display.rules.map(rule=>`<li>${e(rule)}</li>`).join("");
+  }
+
+  // Écran de repos : horloge, état du CDI, annonce et règles ; un toucher ou un scan réveille la borne.
+  let idleTimer;
+  function renderIdle() {
+    const now=new Date(), item=display.announcements.length?display.announcements[newsIndex%display.announcements.length]:null;
+    $("#borne-idle").innerHTML=`<div class="borne-idle-box">
+      <time>${clockFormat.format(now)}</time><span class="borne-idle-date">${dateFormat.format(now)}</span>
+      <p class="borne-idle-state" data-state="${state.open&&state.places!==0?"open":"closed"}">${!state.open?"CDI fermé":state.places===0?"CDI complet":state.places!==null&&state.places!==undefined?`CDI ouvert · ${state.places} place${state.places>1?"s":""} libre${state.places>1?"s":""}`:"CDI ouvert"}</p>
+      ${item?`<div class="borne-news" data-tone="${e(item.tone)}">${icon(toneIcon[item.tone]??"info")}<p>${e(item.text)}</p></div>`:""}
+      ${display.rules.length?`<ul class="borne-rules">${display.rules.map(rule=>`<li>${e(rule)}</li>`).join("")}</ul>`:""}
+      <p class="borne-idle-hint">${icon("scan")} Touche l’écran ou scanne ta carte</p></div>`;
+  }
+  function sleep() {
+    if(!display.idle_enabled || !state.activated || busy || input.value.trim()) return armIdle();
+    renderIdle();
+    $("#borne-idle").hidden=false;
+    input.focus({preventScroll:true});
+  }
+  function armIdle() { clearTimeout(idleTimer); if(display.idle_enabled) idleTimer=setTimeout(sleep,display.idle_delay*1000); }
+  function wake() { if(!$("#borne-idle").hidden) $("#borne-idle").hidden=true; armIdle(); }
+  $("#borne-idle").addEventListener("pointerdown",event=>{ event.preventDefault(); wake(); input.focus({preventScroll:true}); });
+  for(const type of ["pointerdown","keydown"]) root.addEventListener(type,wake,{passive:true});
+
   async function refresh() {
     if(refreshing) return;
     refreshing=true;
     try {
       const settings=await api("/borne/reglages");
       const wasHidden=form.hidden;
+      const before=JSON.stringify(display);
+      if(settings.display) display=settings.display;
+      state={activated:Boolean(settings.activated),open:Boolean(settings.open),places:settings.places,capacity:settings.capacity,occupied:settings.occupied??0,today:settings.today??null};
       form.hidden=!settings.activated;
       closed=!settings.open;
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
@@ -149,14 +261,10 @@ function kiosk() {
         : !settings.open ? settings.reason : settings.message || "";
       if($("#kiosk-state").textContent!==text) $("#kiosk-state").textContent=text;
       $("#kiosk-state").dataset.tone=!settings.activated||!settings.open?"warning":"info";
-      // Pastille d’état : ouvert, fermé ou nombre de places libres.
-      const status=$("#borne-status");
-      status.hidden=!settings.activated;
-      const full=settings.open && settings.places===0;
-      status.dataset.state=!settings.open||full?"closed":"open";
-      status.textContent=!settings.open?"CDI fermé"
-        : settings.places===null||settings.places===undefined?"CDI ouvert"
-        : full?"CDI complet":`CDI ouvert · ${settings.places} place${settings.places>1?"s":""} libre${settings.places>1?"s":""}`;
+      const key=JSON.stringify(display.announcements);
+      if(key!==newsKey){ newsKey=key; newsIndex=0; }
+      renderPlaces(); renderNews(); renderDay(); renderRules(); applyTheme();
+      if(before!==JSON.stringify(display)) armIdle();
       if (form.hidden) { form.reset(); }
       else if(wasHidden) input.focus({preventScroll:true});
     } catch {
@@ -165,22 +273,27 @@ function kiosk() {
       $("#kiosk-state").textContent="La borne est momentanément indisponible.";
     } finally {refreshing=false;}
   }
-  async function checkIn(direction,data) {
+  async function checkIn(direction,data,name="") {
     if(busy || form.hidden) return;
-    if(direction==="entree" && closed) return;
+    if(direction==="entree" && closed) { confirmScreen("error","CDI fermé",$("#kiosk-state").textContent); return; }
     busy=true;
     results.querySelectorAll("button").forEach(button=>button.disabled=true);
     try {
       const result=await api("/borne/"+direction,"POST",data);
-      show((result.direction ?? direction)==="sortie" ? "Sortie enregistrée. À bientôt !" : (result.already ? "Tu es déjà enregistré·e" : "Bienvenue ! Présence enregistrée")+" jusqu’à "+time(result.expires_at)+".","success");
+      const out=(result.direction ?? direction)==="sortie";
+      confirmScreen(out?"out":"in",
+        out?(name?`Au revoir ${name}`:"Sortie enregistrée"):result.already?(name?`${name}, tu es déjà enregistré·e`:"Tu es déjà enregistré·e"):(name?`Bienvenue ${name}`:"Bienvenue au CDI"),
+        out?"À bientôt !":"Présence enregistrée jusqu’à "+time(result.expires_at));
       form.reset();
       clearSearch();
     } catch(error) {
+      confirmScreen("error","Passage non enregistré",error.message);
       show(error.message,"error");
       results.querySelectorAll("button").forEach(button=>button.disabled=false);
     }
     finally {
       busy=false;
+      card.classList.remove("is-scanning");
       refresh();
       input.focus({preventScroll:true});
     }
@@ -190,17 +303,20 @@ function kiosk() {
     const value=input.value.trim();
     if(nameSearchEnabled && value && !isCode(value)) {
       // Touche Entrée dans la recherche : un seul résultat suffit à entrer.
-      if(rows.length===1) checkIn("entree",{ref:rows[0].ref,two_hours:two.checked});
+      if(rows.length===1) checkIn("entree",{ref:rows[0].ref,two_hours:two.checked},rows[0].label);
       else show(rows.length?"Touche ton nom dans la liste.":"Tape ton nom puis touche-le dans la liste.","info");
       return;
     }
     if(!value) return;
     const card=cardCode(value);
-    if(!card) { show("Code de carte illisible. Scanne à nouveau ta carte.","error"); input.value=""; syncMode(); return; }
+    if(!card) { confirmScreen("error","Carte illisible","Scanne à nouveau ta carte."); input.value=""; syncMode(); return; }
     checkIn("auto",{code:card,two_hours:two.checked});
   });
+  tick();
+  setInterval(tick,10_000);
   refresh();
   setInterval(refresh,5000);
+  armIdle();
   kioskApp();
 }
 
@@ -641,8 +757,72 @@ async function fetchBadges() {
     : empty("Aucune carte à imprimer", "Ajoutez des élèves ou sélectionnez une autre classe.", "scan");
 }
 
+// Affichage de la borne : places, annonces colorées, planning du jour, règles, écran de repos, animation et thème.
+const tones = [["info","Information (bleu)"],["succes","Bonne nouvelle (vert)"],["attention","Attention (orange)"],["alerte","Important (rouge)"],["evenement","Événement (violet)"]];
+const announceRow = (item = { text:"", tone:"info" }) => `<div class="announce-row">
+  <input class="input" name="announce-text" maxlength="160" value="${e(item.text)}" placeholder="Ex. Nouveaux mangas au rayon BD" aria-label="Texte de l’annonce">
+  <select class="input" name="announce-tone" aria-label="Couleur de l’annonce">${tones.map(([value,label]) => `<option value="${value}" ${item.tone===value?"selected":""}>${label}</option>`).join("")}</select>
+  ${button("Retirer","trash",'data-remove-announce',"secondary tiny")}</div>`;
+function displayPanel(d) {
+  const hours = (selected) => Array.from({ length:24 }, (_, h) => `<option value="${h}" ${h===selected?"selected":""}>${h} h</option>`).join("");
+  const delays = [[30,"30 secondes"],[60,"1 minute"],[120,"2 minutes"],[300,"5 minutes"],[600,"10 minutes"]];
+  return `<section class="panel panel-body settings-panel display-panel" aria-label="Affichage de la borne"><h2>Affichage de la borne</h2>
+    <form id="display-settings" class="stack">
+      <div class="display-grid">
+        <fieldset class="settings-options"><legend>Éléments affichés</legend>
+          <label class="check-line"><input type="checkbox" name="show_places" ${d.show_places?"checked":""}> Places libres en grand (si une capacité est indiquée)</label>
+          <label class="check-line"><input type="checkbox" name="show_planning" ${d.show_planning?"checked":""}> Planning du jour (ouvert, réservé, fermé)</label>
+          <label class="check-line"><input type="checkbox" name="scan_animation" ${d.scan_animation?"checked":""}> Animation pendant la lecture d’une carte</label>
+          <label class="field"><span>Durée de la confirmation</span><input type="number" name="confirm_seconds" min="2" max="10" value="${d.confirm_seconds}"><small>En secondes, de 2 à 10.</small></label>
+        </fieldset>
+        <fieldset class="settings-options"><legend>Écran de repos et thème</legend>
+          <label class="check-line"><input type="checkbox" name="idle_enabled" ${d.idle_enabled?"checked":""}> Écran de repos (horloge, état du CDI, annonce, règles)</label>
+          <label class="field"><span>Afficher l’écran de repos après</span><select class="input" name="idle_delay">${delays.map(([v,l]) => `<option value="${v}" ${v===d.idle_delay?"selected":""}>${l}</option>`).join("")}${delays.some(([v]) => v===d.idle_delay)?"":`<option value="${d.idle_delay}" selected>${d.idle_delay} s</option>`}</select></label>
+          <label class="field"><span>Thème de la borne</span><select class="input" name="theme">
+            <option value="clair" ${d.theme==="clair"?"selected":""}>Clair</option><option value="sombre" ${d.theme==="sombre"?"selected":""}>Sombre</option>
+            <option value="horaire" ${d.theme==="horaire"?"selected":""}>Sombre à certaines heures</option></select></label>
+          <div class="button-row" id="dark-hours" ${d.theme==="horaire"?"":"hidden"}>
+            <label class="field"><span>Sombre à partir de</span><select class="input" name="dark_from">${hours(d.dark_from)}</select></label>
+            <label class="field"><span>Jusqu’à</span><select class="input" name="dark_to">${hours(d.dark_to)}</select></label></div>
+        </fieldset>
+      </div>
+      <fieldset class="settings-options"><legend>Annonces</legend>
+        <p class="hint">Six au maximum, affichées à tour de rôle (8 secondes chacune). La couleur indique le type d’annonce.</p>
+        <div class="announce-list" id="announce-list">${d.announcements.map(announceRow).join("")}</div>
+        <div>${button("Ajouter une annonce","plus",'id="announce-add"')}</div>
+      </fieldset>
+      <label class="field"><span>Règles du CDI</span><textarea class="input" name="rules" rows="4" maxlength="500" placeholder="Une règle par ligne">${e(d.rules.join("\n"))}</textarea>
+        <small>Une règle par ligne, six au maximum. Affichées sous la borne et sur l’écran de repos.</small></label>
+      <div class="form-actions"><button type="submit" class="btn primary">${icon("check")} Enregistrer l’affichage</button></div>
+    </form></section>`;
+}
+function bindDisplayPanel() {
+  const form = $("#display-settings");
+  if (!can("reglages")) { form.querySelectorAll("input,select,textarea,button").forEach((node) => { node.disabled = true; }); return; }
+  const list = $("#announce-list");
+  const sync = () => { $("#announce-add").disabled = list.children.length >= 6; };
+  sync();
+  $("#announce-add").addEventListener("click", () => { list.insertAdjacentHTML("beforeend", announceRow()); sync(); list.lastElementChild.querySelector("input").focus(); });
+  list.addEventListener("click", (event) => { if (event.target.closest("[data-remove-announce]")) { event.target.closest(".announce-row").remove(); sync(); } });
+  form.elements.theme.addEventListener("change", () => { $("#dark-hours").hidden = form.elements.theme.value !== "horaire"; });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = {
+      show_places:form.elements.show_places.checked, show_planning:form.elements.show_planning.checked, scan_animation:form.elements.scan_animation.checked,
+      confirm_seconds:Number(form.elements.confirm_seconds.value), idle_enabled:form.elements.idle_enabled.checked, idle_delay:Number(form.elements.idle_delay.value),
+      theme:form.elements.theme.value, dark_from:Number(form.elements.dark_from.value), dark_to:Number(form.elements.dark_to.value),
+      announcements:[...list.querySelectorAll(".announce-row")].map((row) => ({ text:row.querySelector("input").value, tone:row.querySelector("select").value })).filter((item) => item.text.trim()),
+      rules:form.elements.rules.value.split("\n").map((rule) => rule.trim()).filter(Boolean).slice(0, 6),
+    };
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try { await gestion("borne/affichage", "PATCH", data); toast("Affichage de la borne enregistré. Il s’applique sur la borne en quelques secondes."); }
+    catch (error) { toast(error.message, "error"); }
+    finally { submit.disabled = false; }
+  });
+}
 async function renderKioskSettings() {
-  const settings = await gestion("reglages");
+  const [settings, display] = await Promise.all([gestion("reglages"), gestion("borne/affichage")]);
   $("#main").innerHTML = section("Réglages de la borne", "Gérez les inscriptions et le message visible par les élèves.")
     + `<section class="panel panel-body settings-panel" aria-label="Options de la borne">
       <form id="kiosk-settings" class="stack">
@@ -659,7 +839,8 @@ async function renderKioskSettings() {
           <small>Facultatif · 180 caractères maximum</small></label>
         <div class="form-actions"><button type="submit" class="btn primary">${icon("check")} Enregistrer les réglages</button></div>
       </form>
-    </section>`;
+    </section>` + displayPanel(display);
+  bindDisplayPanel();
   $("#kiosk-settings").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

@@ -575,6 +575,93 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
   .borne-result-in em{display:none}
 }
 @media (prefers-reduced-motion:reduce){.borne-feedback{animation:none}.borne-switch,.borne-switch::after{transition:none}}
+/* Borne v1.13 : places libres, annonces, planning du jour, règles, confirmation, repos, scan et thème sombre. */
+.borne-head{align-items:center}
+.borne-head>div:first-child{flex:1 1 320px}
+.borne-places{display:grid;grid-template-columns:auto auto;align-items:baseline;column-gap:10px;row-gap:6px;min-width:190px;padding:12px 18px;border-radius:16px;background:#e3f4ea;color:#145c3a}
+.borne-places b{font-size:clamp(2.6rem,4.6vw,3.6rem);line-height:1;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.borne-places span{font-weight:700;font-size:clamp(1rem,1.4vw,1.2rem)}
+.borne-places progress{grid-column:1/-1;width:100%;height:10px;border:0;border-radius:6px;background:#ffffffb0;accent-color:currentColor}
+.borne-places progress::-webkit-progress-bar{background:#ffffffb0;border-radius:6px}
+.borne-places progress::-webkit-progress-value{background:currentColor;border-radius:6px}
+.borne-places progress::-moz-progress-bar{background:currentColor;border-radius:6px}
+.borne-places small{grid-column:1/-1;font-weight:600;opacity:.8}
+.borne-places[data-level=mid]{background:#fff4dc;color:#7a5200}
+.borne-places[data-level=high]{background:#ffe7d6;color:#9a3d0a}
+.borne-places[data-level=full]{background:#fde3e5;color:#8b1720}
+.borne-news{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;font-weight:700;font-size:clamp(1.05rem,1.5vw,1.25rem);background:#e8eeff;color:#1b2a8f;animation:borne-pop .25s ease-out}
+.borne-news .icon{width:28px;height:28px;flex:none}
+.borne-news p{flex:1}
+.borne-news[data-tone=succes]{background:#e3f4ea;color:#145c3a}
+.borne-news[data-tone=attention]{background:#fff4dc;color:#6b4a0c}
+.borne-news[data-tone=alerte]{background:#fde3e5;color:#8b1720}
+.borne-news[data-tone=evenement]{background:#f1e8ff;color:#5a2a9c}
+.borne-news-dots{display:flex;gap:6px}
+.borne-news-dots i{width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.25}
+.borne-news-dots i.on{opacity:1}
+.borne-day{display:grid;gap:8px;padding-top:16px;border-top:1px solid var(--line)}
+.borne-day-head{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font-size:clamp(.98rem,1.3vw,1.1rem)}
+.borne-day-head span{color:var(--muted);font-weight:600}
+.borne-day-bar{position:relative;height:18px;border-radius:9px;background:var(--canvas);overflow:hidden}
+.borne-day-bar i{position:absolute;top:0;bottom:0}
+.seg-ouvert{background:#bfe6cf}.seg-reservation{background:#f6c56b}.seg-fermeture{background:#ef9aa1}
+.borne-day-now{width:3px;margin-left:-1px;background:var(--ink);z-index:2}
+.borne-day-scale{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:.9rem;font-weight:600}
+.borne-day-scale .legend{display:flex;align-items:center;gap:6px}
+.borne-day-scale .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-left:8px}
+.borne-rules{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.borne-rules li{padding:7px 14px;border-radius:999px;background:var(--canvas);color:var(--muted);font-weight:600;font-size:clamp(.9rem,1.2vw,1rem)}
+.borne-card.is-scanning{animation:borne-scan 1s ease-in-out infinite}
+.borne-card.is-scanning .borne-scan input{border-color:var(--blue)}
+@keyframes borne-scan{0%,100%{box-shadow:0 24px 60px #00000045,0 0 0 0 #8f99ff00}50%{box-shadow:0 24px 60px #00000045,0 0 0 10px #8f99ff66}}
+.borne-confirm{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:24px;background:#0b1150d9;animation:borne-fade .2s ease-out;cursor:pointer}
+.borne-confirm-box{position:relative;overflow:hidden;width:min(720px,100%);display:grid;justify-items:center;gap:14px;text-align:center;padding:clamp(32px,6vw,64px) 28px;border-radius:24px;background:#fff;color:#145c3a;box-shadow:0 30px 80px #0006}
+.borne-confirm-icon{display:grid;place-items:center;width:clamp(84px,10vw,112px);height:clamp(84px,10vw,112px);border-radius:50%;background:#e3f4ea;animation:borne-pop-in .35s cubic-bezier(.2,1.4,.4,1)}
+.borne-confirm-icon .icon{width:55%;height:55%}
+.borne-confirm-box strong{font-size:clamp(1.9rem,4vw,3rem);letter-spacing:-.03em;line-height:1.1}
+.borne-confirm-box p{font-size:clamp(1.15rem,2vw,1.5rem);font-weight:600;color:#31374f}
+.borne-confirm-timer{position:absolute;left:0;bottom:0;height:5px;width:100%;background:currentColor;transform-origin:left;animation:borne-timer var(--confirm,4s) linear forwards}
+.borne-confirm[data-tone=out] .borne-confirm-box{color:#1b2a8f}.borne-confirm[data-tone=out] .borne-confirm-icon{background:#e8eeff}
+.borne-confirm[data-tone=error] .borne-confirm-box{color:#8b1720}.borne-confirm[data-tone=error] .borne-confirm-icon{background:#fde3e5}
+@keyframes borne-fade{from{opacity:0}to{opacity:1}}
+@keyframes borne-pop-in{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@keyframes borne-timer{to{transform:scaleX(0)}}
+.borne-idle{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:linear-gradient(180deg,#000091 0%,#0b1150 100%);color:#fff;cursor:pointer;animation:borne-fade .4s ease-out}
+.borne-idle-box{width:min(900px,100%);display:grid;justify-items:center;gap:18px;text-align:center}
+.borne-idle time{font-size:clamp(5rem,14vw,10rem);font-weight:800;line-height:.95;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.borne-idle-date{font-size:clamp(1.3rem,2.4vw,1.9rem);color:#c9cdf5;text-transform:capitalize}
+.borne-idle-state{padding:10px 22px;border-radius:999px;font-weight:700;font-size:clamp(1.1rem,1.8vw,1.4rem);background:#e3f4ea;color:#145c3a}
+.borne-idle-state[data-state=closed]{background:#fde3e5;color:#8b1720}
+.borne-idle .borne-news{width:100%;justify-content:center;text-align:left}
+.borne-idle .borne-rules{justify-content:center}
+.borne-idle .borne-rules li{background:#ffffff1f;color:#e6e8ff}
+.borne-idle-hint{display:flex;align-items:center;gap:10px;color:#c9cdf5;font-weight:600;font-size:clamp(1rem,1.5vw,1.2rem);animation:borne-breathe 2.4s ease-in-out infinite}
+.borne-idle-hint .icon{width:24px;height:24px}
+@keyframes borne-breathe{50%{opacity:.45}}
+/* Thème sombre de la borne (réglé dans la gestion, indépendant du thème de l’espace personnel). */
+.borne.borne-dark{--white:#161a2d;--ink:#e6e8f5;--muted:#a6acc4;--line:#2d3252;--canvas:#0f1326;--pale:#232a55;--blue:#8f99ff;background:linear-gradient(180deg,#070a24 0%,#03040f 100%)}
+.borne.borne-dark .borne-card{box-shadow:0 24px 60px #000a}
+.borne.borne-dark .borne-scan input{border-color:#353c66}
+.borne.borne-dark .borne-status,.borne.borne-dark .borne-places,.borne.borne-dark .borne-feedback.success,.borne.borne-dark .borne-news[data-tone=succes]{background:#123d2a;color:#7ee0ad}
+.borne.borne-dark .borne-places[data-level=mid],.borne.borne-dark .borne-state[data-tone=warning],.borne.borne-dark .borne-news[data-tone=attention]{background:#3a2a0d;color:#ffd99a}
+.borne.borne-dark .borne-places[data-level=high]{background:#43230e;color:#ffbd8f}
+.borne.borne-dark .borne-status[data-state=closed],.borne.borne-dark .borne-places[data-level=full],.borne.borne-dark .borne-feedback.error,.borne.borne-dark .borne-news[data-tone=alerte]{background:#4a1820;color:#ff9ba2}
+.borne.borne-dark .borne-news{background:#1d2552;color:#c3cbff}
+.borne.borne-dark .borne-news[data-tone=evenement]{background:#2e1d52;color:#d7c2ff}
+.borne.borne-dark .borne-result-in em{color:#7ee0ad}
+.borne.borne-dark .borne-confirm-box{background:#161a2d}
+.borne.borne-dark .borne-confirm-box p{color:#c4c9ef}
+.borne.borne-dark .borne-idle{background:linear-gradient(180deg,#070a24 0%,#03040f 100%)}
+.borne.borne-dark .seg-ouvert{background:#2f6b4a}.borne.borne-dark .seg-reservation{background:#8a6421}.borne.borne-dark .seg-fermeture{background:#8a2f37}
+@media (prefers-reduced-motion:reduce){.borne-card.is-scanning,.borne-idle-hint,.borne-confirm-icon,.borne-news{animation:none}}
+/* Réglages de l’affichage de la borne (gestion). */
+.display-panel{margin-top:16px}
+.announce-list{display:grid;gap:8px}
+.announce-row{display:grid;grid-template-columns:minmax(0,1fr) 230px auto;gap:8px;align-items:center}
+.announce-row select{min-height:42px}
+.tone-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.display-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 24px}
+@media (max-width:720px){.display-grid{grid-template-columns:1fr}.announce-row{grid-template-columns:1fr}}
 /* Droits fins : tableau Aucun / Consulter / Gérer et mention de consultation seule. */
 .dialog.dialog-wide{width:min(760px,calc(100% - 26px))}
 .rights-matrix{border:1px solid var(--line);border-radius:10px;overflow:hidden}

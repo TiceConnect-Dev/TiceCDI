@@ -141,7 +141,8 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         $settings = kioskSettings($db);
         $reason = closure($db, $clock, $settings);
         $settings['open'] = $reason === '';
-        return $settings + occupancy($db, $clock) + ['activated' => true, 'reason' => $reason, 'name_search' => deviceSettings($db)['name_search']];
+        return $settings + occupancy($db, $clock) + ['activated' => true, 'reason' => $reason, 'name_search' => deviceSettings($db)['name_search'],
+            'display' => displaySettings($db), 'today' => kioskToday($db, $clock)];
     }
     if (!$device) {
         fail(403, 'Ce poste doit être activé par le personnel.');
@@ -314,6 +315,10 @@ function managementResource(Store $db, string $path, string $method, int $clock)
             'exclusions' => exclusionsResource($db, $method, $id, $me, $clock),
             'comptes' => accountsResource($db, $method, $id, $me, $clock),
         };
+    }
+    if ($path === '/api/gestion/borne/affichage' && in_array($method, ['GET', 'PATCH'], true)) {
+        need($me, ...($method === 'GET' ? ['reglages', 'reglages_voir'] : ['reglages']));
+        return $method === 'GET' ? displaySettings($db) : changeDisplay($db, $me, requestData());
     }
     if ($path === '/api/gestion/reglages' && in_array($method, ['GET', 'PATCH'], true)) {
         need($me, ...($method === 'GET' ? ['reglages', 'reglages_voir'] : ['reglages']));

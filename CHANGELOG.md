@@ -1,5 +1,20 @@
 # Journal des versions
 
+## v1.13.0 · Affichage de la borne
+
+Nouveau bloc **Affichage de la borne** dans *Réglages et horaires* (droit « Réglages ») :
+
+- **Places libres en grand** avec jauge (vert, orange, rouge selon le remplissage) quand une capacité est indiquée.
+- **Confirmation plein écran** après chaque passage (« Bienvenue Lina M. », heure de fin, « Au revoir »), durée réglable de 2 à 10 secondes ; un toucher la ferme.
+- **Annonces** : six au maximum, en couleur (information, bonne nouvelle, attention, important, événement), affichées à tour de rôle.
+- **Planning du jour** : frise ouvert / réservé / fermé, repère de l’heure et créneau en cours ou à venir (sans nom de classe).
+- **Règles du CDI** : six au maximum, sous la borne et sur l’écran de repos.
+- **Écran de repos** réglable (30 s à 10 min) : grande horloge, état du CDI, annonce et règles ; un toucher ou un scan réveille la borne.
+- **Animation de lecture** quand la douchette tape un code.
+- **Thème de la borne** : clair, sombre, ou sombre entre deux heures.
+
+Migration `0011_kiosk_display.sql` (réglages visuels, non inclus dans les sauvegardes).
+
 ## v1.12.1 · Jours purgés avant la v1.12
 
 - L’affluence jour × heure affiche aussi les jours purgés avant la v1.12 (par exemple un dimanche) avec leur total dans une colonne « Sans heure » : plus aucun jour ne disparaît du tableau ni du PDF.

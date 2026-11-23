@@ -184,3 +184,100 @@ function cardCode(mixed $value): string
     return preg_match('/^[0-9A-F]{10}$/D', $body) ? 'CDI' . $body : '';
 }
 
+/** Affichage de la borne (v1.13) : réglages visuels validés. Même règle que cdi/display.mjs. */
+const DISPLAY_DEFAULTS = ['show_places' => true, 'show_planning' => true, 'scan_animation' => true, 'confirm_seconds' => 4,
+    'announcements' => [], 'rules' => ['Travail calme et respect de chacun', 'Ni nourriture ni boisson', 'Téléphone rangé'],
+    'idle_enabled' => true, 'idle_delay' => 60, 'theme' => 'clair', 'dark_from' => 17, 'dark_to' => 8];
+
+function displayText(mixed $value, int $limit): string
+{
+    return is_string($value) ? mb_substr(trim(preg_replace('/\s+/u', ' ', $value) ?? ''), 0, $limit, 'UTF-8') : '';
+}
+
+function checkDisplay(mixed $data): array
+{
+    if (!is_array($data) || array_is_list($data) && $data !== []) {
+        fail(400, 'Les réglages d’affichage sont incomplets.');
+    }
+    $out = DISPLAY_DEFAULTS;
+    foreach (['show_places', 'show_planning', 'scan_animation', 'idle_enabled'] as $key) {
+        if (array_key_exists($key, $data)) {
+            if (!is_bool($data[$key])) {
+                fail(400, 'Les réglages d’affichage sont incomplets.');
+            }
+            $out[$key] = $data[$key];
+        }
+    }
+    foreach ([['confirm_seconds', 2, 10, 'La confirmation dure de 2 à 10 secondes.'], ['idle_delay', 15, 900, 'L’écran de repos s’affiche après 15 secondes à 15 minutes.'],
+        ['dark_from', 0, 23, 'Choisissez une heure de début du thème sombre.'], ['dark_to', 0, 23, 'Choisissez une heure de fin du thème sombre.']] as [$key, $min, $max, $message]) {
+        if (array_key_exists($key, $data)) {
+            if (!is_int($data[$key]) || $data[$key] < $min || $data[$key] > $max) {
+                fail(400, $message);
+            }
+            $out[$key] = $data[$key];
+        }
+    }
+    if (array_key_exists('theme', $data)) {
+        if (!in_array($data['theme'], ['clair', 'sombre', 'horaire'], true)) {
+            fail(400, 'Choisissez un thème.');
+        }
+        $out['theme'] = $data['theme'];
+    }
+    if (array_key_exists('announcements', $data)) {
+        if (!is_array($data['announcements']) || count($data['announcements']) > 6) {
+            fail(400, 'Six annonces au maximum.');
+        }
+        $out['announcements'] = [];
+        foreach ($data['announcements'] as $item) {
+            $text = displayText($item['text'] ?? null, 160);
+            if ($text === '' || !in_array($item['tone'] ?? null, ['info', 'succes', 'attention', 'alerte', 'evenement'], true)) {
+                fail(400, 'Chaque annonce a un texte (160 caractères au plus) et une couleur.');
+            }
+            $out['announcements'][] = ['text' => $text, 'tone' => $item['tone']];
+        }
+    }
+    if (array_key_exists('rules', $data)) {
+        if (!is_array($data['rules']) || count($data['rules']) > 6) {
+            fail(400, 'Six règles au maximum.');
+        }
+        $out['rules'] = array_values(array_filter(array_map(static fn ($rule) => displayText($rule, 70), $data['rules']), static fn ($rule) => $rule !== ''));
+    }
+    return $out;
+}
+
+function displaySettings(Store $db): array
+{
+    $stored = json_decode((string) ($db->one('SELECT settings FROM kiosk_display WHERE id=1')['settings'] ?? '{}'), true);
+    if (!is_array($stored)) {
+        return DISPLAY_DEFAULTS;
+    }
+    try {
+        return checkDisplay($stored);
+    } catch (Throwable) {
+        return DISPLAY_DEFAULTS;
+    }
+}
+
+function changeDisplay(Store $db, array $me, array $data): array
+{
+    $before = displaySettings($db);
+    $after = checkDisplay(array_merge($before, $data));
+    $db->run('INSERT INTO kiosk_display (id,settings) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET settings=excluded.settings', jsonData($after));
+    audit($db, $me, 'horaires', 'Modification de l’affichage de la borne', 'Borne', $before, $after);
+    return $after;
+}
+
+/** Planning du jour pour la borne : horaires d’ouverture et créneaux réservés ou fermés, sans nom de classe. */
+function kioskToday(Store $db, int $clock): array
+{
+    $now = parisClock($clock);
+    $useHours = ($db->one('SELECT use_hours FROM kiosk_settings WHERE id=1')['use_hours'] ?? 0) === 1;
+    $rows = array_map(static function (array $row): array {
+        $closed = $row['kind'] === 'fermeture';
+        return ['start_min' => (int) $row['start_min'], 'end_min' => (int) $row['end_min'], 'kind' => $closed ? 'fermeture' : 'reservation', 'title' => $closed ? 'Fermé' : 'Réservé'];
+    }, $db->all('SELECT start_min,end_min,kind FROM planning WHERE day=? ORDER BY start_min', $now['day']));
+    return ['day' => $now['day'], 'minute' => $now['minute'],
+        'hours' => $useHours ? $db->all('SELECT start_min,end_min FROM opening_hours WHERE weekday=? ORDER BY start_min', $now['weekday']) : [],
+        'rows' => $rows];
+}
+
