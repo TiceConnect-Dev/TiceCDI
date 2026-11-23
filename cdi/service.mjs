@@ -9,8 +9,9 @@ import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./ba
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
 import { archiveRows, rollover, years } from "./school-year.mjs";
-import { changeSlot, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeHours, openingHours, parisClock, presenceDeadline, saveOpeningHours, shiftDay, validDay, weekday, weekPlanning } from "./calendar.mjs";
+import { changeSlot, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeHours, openingHours, parisClock, parisMidnight, presenceDeadline, saveOpeningHours, shiftDay, validDay, weekday, weekPlanning } from "./calendar.mjs";
 import { classRoster, groupArrival } from "./operations.mjs";
+import { capacityAlert, excludedAttempt, fullRefused, recentEvents } from "./events.mjs";
 
 // Droits : « gérer » (clé simple) ou « consulter » (suffixe _voir) par rubrique, plus des actions ponctuelles.
 export const RIGHTS = ["presence", "sorties", "exclusions", "exclusions_voir", "eleves", "eleves_voir", "classes", "classes_voir", "import", "badges", "comptes", "arrivees", "seances_voir", "planning", "planning_voir", "statistiques", "groupes", "groupes_voir", "borne", "reglages", "reglages_voir", "journal", "export_planning", "export_appel", "export_statistiques", "export_dossiers", "sauvegarde", "restaurer", "dossiers_voir", "donnees", "effacer", "comptes_voir"];
@@ -125,6 +126,14 @@ export function model(db) {
   };
 }
 function changes(result) { return result.meta.changes; }
+// Motif de présence : texte court facultatif (60 caractères au plus).
+function visitReason(value, fail) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") fail(400, "Indiquez un motif valide.");
+  const reason = value.trim().replace(/\s+/g, " ");
+  if (reason.length > 60) fail(400, "Le motif peut contenir jusqu’à 60 caractères.");
+  return reason || null;
+}
 async function kioskSettings(m) {
   const settings = await m.one("SELECT is_open, allow_second_hour, message, capacity, hide_weekend FROM kiosk_settings WHERE id=1");
   return {
@@ -435,7 +444,7 @@ async function dispatch(request, env, options) {
     }
     const code=cardCode(typeof data.code==="string" ? data.code.slice(0,80) : "");
     if (!code) fail(400,"Scanne ou saisis le code de ta carte CDI.");
-    const person=await m.one(`SELECT s.id,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
+    const person=await m.one(`SELECT s.id,s.first_name,s.last_name,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
       WHERE s.active=1 AND s.code=?`,code);
     // Carte scannée : sortie si l’élève est déjà présent, entrée sinon.
     const present=path.endsWith("/auto") && person && await m.one("SELECT 1 AS yes FROM visits WHERE student_id=? AND ended_at IS NULL AND expires_at>?",person.id,clock);
@@ -466,9 +475,10 @@ async function dispatch(request, env, options) {
       m.stmt(`SELECT ${seatsSql} AS places`,clock),
     ]);
     if (closed.results[0].reason) fail(409,closed.results[0].reason);
-    if (status.results.length) fail(403, "L’entrée n’a pas pu être enregistrée. Adresse-toi à l’accueil du CDI.");
-    if (!existing.results.length && seats.results[0].places===0) fail(409,"Le CDI est complet pour le moment.");
+    if (status.results.length) { await excludedAttempt(clock,m,person); fail(403, "L’entrée n’a pas pu être enregistrée. Adresse-toi à l’accueil du CDI."); }
+    if (!existing.results.length && seats.results[0].places===0) { await fullRefused(clock,m); fail(409,"Le CDI est complet pour le moment."); }
     if (!existing.results.length) fail(409, "L’entrée n’a pas pu être enregistrée. Réessaie.");
+    if (changes(inserted)) await capacityAlert(m,clock);
     return json({ expires_at: existing.results[0].expires_at, already: !changes(inserted) });
   }
 
@@ -616,7 +626,7 @@ async function dispatch(request, env, options) {
   }
   if (path === "/api/gestion/arrivees" && ["GET","POST"].includes(method)) {
     need("arrivees");
-    if (method === "POST") return json(await groupArrival(m,await payload(request),clock,today(),fail));
+    if (method === "POST") { const result=await groupArrival(m,await payload(request),clock,today(),fail); if (result.added) await capacityAlert(m,clock); return json(result); }
     const classId = url.searchParams.get("class");
     if (!classId || !await m.one("SELECT id FROM classes WHERE id=?",classId)) fail(404,"Sélectionnez une classe existante.");
     return json({ rows:await classRoster(m,classId) });
@@ -754,17 +764,94 @@ async function dispatch(request, env, options) {
     need("import");
     return json(await importStudents(m, await payload(request)));
   }
+  // Notifications du personnel (24 dernières heures).
+  if (path==="/api/gestion/notifications" && method==="GET") {
+    need("presence","sorties","arrivees");
+    const after=Number(url.searchParams.get("after")) || 0;
+    return json({rows:await recentEvents(m,clock,Number.isSafeInteger(after)?after:0),now:clock});
+  }
+  // Tableau de bord en direct : présents, places, arrivées, départs proches, planning du jour et état de la borne.
+  if (path==="/api/gestion/direct" && method==="GET") {
+    need("presence","sorties","arrivees");
+    const now=parisClock(clock), closure=kioskClosure(clock), start=parisMidnight(now.day);
+    const internal=me.rights.includes("planning") || me.rights.includes("planning_voir");
+    const [gauge,state,present,arrivals,leaving,totals,classesNow,slots,hours,events]=await Promise.all([
+      occupancy(m,clock), m.one(closure.sql,...closure.params),
+      m.one("SELECT count(*) AS total FROM visits WHERE ended_at IS NULL AND expires_at>?",clock),
+      m.list(`SELECT v.starts_at,v.expires_at,v.source,v.reason,s.first_name,s.last_name,c.name AS class_name FROM visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
+        WHERE v.starts_at>=? ORDER BY v.starts_at DESC LIMIT 8`,start),
+      m.list(`SELECT v.expires_at,s.first_name,s.last_name,c.name AS class_name FROM visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
+        WHERE v.ended_at IS NULL AND v.expires_at>? AND v.expires_at<=? ORDER BY v.expires_at LIMIT 10`,clock,clock+15*60_000),
+      m.one("SELECT count(*) AS visits,count(DISTINCT student_id) AS students FROM visits WHERE starts_at>=?",start),
+      m.list(`SELECT coalesce(v.class_name,c.name) AS name,count(*) AS total FROM visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
+        WHERE v.ended_at IS NULL AND v.expires_at>? GROUP BY coalesce(v.class_name,c.name) ORDER BY total DESC,name LIMIT 12`,clock),
+      m.list(`SELECT p.start_min,p.end_min,p.title,p.kind,p.students_allowed,coalesce(c.name,g.name) AS class_name FROM planning p
+        LEFT JOIN classes c ON c.id=p.class_id LEFT JOIN school_groups g ON g.id=p.group_id WHERE p.day=? ORDER BY p.start_min`,now.day),
+      m.list("SELECT start_min,end_min FROM opening_hours WHERE weekday=? ORDER BY start_min",now.weekday),
+      recentEvents(m,clock),
+    ]);
+    const planning=internal ? slots : publicPlanning(slots.map(row=>({...row,day:now.day}))).map(({day,...row})=>row);
+    return json({now:clock,minute:now.minute,...gauge,present:present.total,open:!state.reason,reason:state.reason,
+      arrivals,leaving,today:totals,classes:classesNow,planning,hours,events,internal});
+  }
+  // Recherche d’élève pour une arrivée manuelle : nom, prénom ou classe, avec présence et exclusion en cours.
+  if (path==="/api/gestion/presences/recherche" && method==="POST") {
+    need("arrivees");
+    const tokens=searchTokens((await payload(request)).q,words);
+    if (!tokens.length) return json({rows:[]});
+    const rows=rankMatches(await m.list(`SELECT s.id,s.first_name,s.last_name,s.search_name,c.name AS class_name,c.normalized AS class_key,
+        EXISTS(SELECT 1 FROM visits v WHERE v.student_id=s.id AND v.ended_at IS NULL AND v.expires_at>?) AS present,
+        EXISTS(SELECT 1 FROM exclusions x WHERE x.student_id=s.id AND x.revoked_at IS NULL AND x.until_day>=?) AS excluded
+      FROM students s JOIN classes c ON c.id=s.class_id WHERE s.active=1 ${tokens.map(()=>"AND (s.search_name LIKE ? OR replace(c.normalized,' ','') LIKE ?)").join(" ")} LIMIT 200`,
+      clock,today(),...tokens.flatMap(token=>["%"+token+"%",token+"%"])),tokens);
+    return json({rows:rows.slice(0,12).map(({id,first_name,last_name,class_name,present,excluded})=>({id,first_name,last_name,class_name,present:Boolean(present),excluded:Boolean(excluded)}))});
+  }
+  // Arrivée enregistrée par le personnel (élève sans carte, oubli…) : hors horaires et créneaux réservés, mais jamais pour un élève exclu.
+  if (path==="/api/gestion/presences" && method==="POST") {
+    need("arrivees");
+    const { student_id:studentId, two_hours:twoHours, reason:rawReason } = await payload(request);
+    if (typeof studentId!=="string" || studentId.length>80 || (twoHours!==undefined && typeof twoHours!=="boolean")) fail(400,"Sélectionnez un élève.");
+    const reason=visitReason(rawReason,fail);
+    const person=await m.one(`SELECT s.id,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id WHERE s.id=? AND s.active=1`,studentId);
+    if (!person) fail(404,"Élève introuvable ou fiche retirée.");
+    const day=today();
+    const excluded=await m.one("SELECT until_day FROM exclusions WHERE student_id=? AND revoked_at IS NULL AND until_day>=? ORDER BY until_day DESC LIMIT 1",person.id,day);
+    if (excluded) fail(403,`Cet élève est exclu du CDI jusqu’au ${excluded.until_day.split("-").reverse().join("/")}.`);
+    const current=await m.one("SELECT expires_at FROM visits WHERE student_id=? AND ended_at IS NULL AND expires_at>? ORDER BY expires_at DESC LIMIT 1",person.id,clock);
+    if (current) {
+      if (reason) await m.run("UPDATE visits SET reason=? WHERE student_id=? AND ended_at IS NULL AND expires_at>?",reason,person.id,clock);
+      return json({expires_at:current.expires_at,already:true});
+    }
+    const gauge=await occupancy(m,clock);
+    if (gauge.places===0) fail(409,`Le CDI est complet (${gauge.capacity} places). Augmentez la capacité dans les réglages si besoin.`);
+    const expires=presenceDeadline(clock)+(twoHours===true?HOUR:0);
+    await m.batch([
+      m.stmt("INSERT INTO visits (id,student_id,starts_at,expires_at,source,class_name,reason) VALUES (?,?,?,?,'individuel',?,?)",id(),person.id,clock,expires,person.class_name,reason),
+      audit(m,me,"presences","Arrivée enregistrée par le personnel","Présence",null,null,true),
+    ]);
+    await capacityAlert(m,clock);
+    return json({expires_at:expires,already:false});
+  }
   if (resource === "presences") {
     if (method === "GET" && !itemId) {
       need("presence", "sorties", "arrivees");
-      const rows = await m.list(`SELECT v.id,v.student_id,v.starts_at,v.expires_at,v.source,s.first_name,s.last_name,c.name AS class_name
+      const rows = await m.list(`SELECT v.id,v.student_id,v.starts_at,v.expires_at,v.source,v.reason,s.first_name,s.last_name,c.name AS class_name
         FROM visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
         WHERE v.ended_at IS NULL AND v.expires_at>? ORDER BY v.expires_at,s.last_name`, clock);
       return json({ rows, now: clock, ...await occupancy(m,clock) });
     }
     if (method === "PATCH" && itemId) {
+      const body = await payload(request);
+      // Motif de présence seul : modifiable par les agents qui gèrent les sorties ou les arrivées.
+      if (Object.hasOwn(body, "reason") && body.minutes === undefined) {
+        need("sorties", "arrivees");
+        const reason = visitReason(body.reason, fail);
+        const updated = await m.run("UPDATE visits SET reason=? WHERE id=? AND ended_at IS NULL AND expires_at>?", reason, itemId, clock);
+        if (!changes(updated)) fail(409, "Cette présence est terminée.");
+        return json({ reason });
+      }
       need("sorties");
-      const { minutes, expires_at } = await payload(request);
+      const { minutes, expires_at } = body;
       if (![15, 30, 60].includes(minutes) || !Number.isSafeInteger(expires_at)) fail(400, "Choisissez une prolongation de 15, 30 ou 60 minutes.");
       const visit = await m.one(`SELECT expires_at,ended_at FROM visits WHERE id=?`, itemId);
       if (!visit || visit.ended_at !== null || visit.expires_at <= clock) fail(409, "Cette présence est terminée.");

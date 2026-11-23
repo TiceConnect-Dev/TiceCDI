@@ -165,6 +165,15 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         $data['code'] = $picked['code'];
     }
     $data['code'] = cardCode($data['code'] ?? null);
+    try {
+        return kioskAction($db, $path, $data);
+    } finally {
+        flushKioskEvents($db, clockMs());
+    }
+}
+
+function kioskAction(Store $db, string $path, array $data): array
+{
     return $db->atomic(static function () use ($db, $path, $data): array {
         $now = clockMs();
         // Carte scannée : sortie si l’élève est déjà présent, entrée sinon.
@@ -306,6 +315,37 @@ function managementResource(Store $db, string $path, string $method, int $clock)
     }
     if ($path === '/api/gestion/eleves/recherche' && $method === 'POST') {
         return studentsResource($db,'GET',null,$me,$clock,requestData());
+    }
+    if ($path === '/api/gestion/notifications' && $method === 'GET') {
+        need($me, 'presence', 'sorties', 'arrivees');
+        $after = filter_var(q('after', '0'), FILTER_VALIDATE_INT);
+        return ['rows' => recentEvents($db, $clock, $after === false ? 0 : max(0, $after)), 'now' => $clock];
+    }
+    if ($path === '/api/gestion/direct' && $method === 'GET') {
+        need($me, 'presence', 'sorties', 'arrivees');
+        return liveBoard($db, $me, $clock);
+    }
+    if ($path === '/api/gestion/presences/recherche' && $method === 'POST') {
+        need($me, 'arrivees');
+        $tokens = array_slice(array_values(array_filter(explode(' ', words(requestData()['q'] ?? null)), static fn ($token) => $token !== '')), 0, 4);
+        if (mb_strlen(implode('', $tokens), 'UTF-8') < 2) {
+            return ['rows' => []];
+        }
+        $params = [$clock, parisClock($clock)['day']];
+        foreach ($tokens as $token) {
+            array_push($params, '%' . $token . '%', $token . '%');
+        }
+        $rows = rankMatches($db->all("SELECT s.id,s.first_name,s.last_name,s.search_name,c.name AS class_name,c.normalized AS class_key,
+            EXISTS(SELECT 1 FROM visits v WHERE v.student_id=s.id AND v.ended_at IS NULL AND v.expires_at>?) AS present,
+            EXISTS(SELECT 1 FROM exclusions x WHERE x.student_id=s.id AND x.revoked_at IS NULL AND x.until_day>=?) AS excluded
+            FROM students s JOIN classes c ON c.id=s.class_id WHERE s.active=1 "
+            . str_repeat("AND (s.search_name LIKE ? OR replace(c.normalized,' ','') LIKE ?) ", count($tokens)) . 'LIMIT 200', ...$params), $tokens, false);
+        return ['rows' => array_map(static fn ($row) => ['id' => $row['id'], 'first_name' => $row['first_name'], 'last_name' => $row['last_name'],
+            'class_name' => $row['class_name'], 'present' => (bool) $row['present'], 'excluded' => (bool) $row['excluded']], array_slice($rows, 0, 12))];
+    }
+    if ($path === '/api/gestion/presences' && $method === 'POST') {
+        need($me, 'arrivees');
+        return manualArrival($db, $me, requestData(), $clock);
     }
     if (preg_match('~^/api/gestion/(eleves|classes|presences|exclusions|comptes)(?:/([a-f0-9-]+))?$~D', $path, $matches)) {
         $id = $matches[2] ?? null;

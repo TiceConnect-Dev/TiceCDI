@@ -1,5 +1,12 @@
 # Journal des versions
 
+## v1.15.0 · Tableau de bord en direct, alertes et arrivée manuelle
+
+- **En direct** (nouvelle page d’accueil de la gestion pour les droits Présences) : élèves présents et jauge des places, état de la borne, passages du jour, créneau en cours et suivant, dernières arrivées, départs dans les 15 minutes, classes présentes, planning du jour et alertes. Actualisé toutes les 10 secondes.
+- **Alertes** : cloche dans l’en-tête avec compteur (élève exclu qui tente d’entrer, CDI presque plein à 90 %, CDI complet). Alertes du navigateur en option. Conservées 48 heures (migration `0013_kiosk_events.sql`).
+- **Motif de présence** : colonne « Motif » dans la liste des présents (travail personnel, lecture, recherche documentaire, ordinateur, devoir, orientation, envoyé par un professeur, permanence ou motif libre), modifiable d’un clic et proposé lors d’une arrivée manuelle. Supprimé avec le passage lors de la purge (migration `0014_visit_reason.sql`).
+- **Ajouter un élève** depuis la gestion (Présences et En direct) : recherche par nom, prénom ou classe, deuxième heure possible. Fonctionne hors horaires et pendant un créneau fermé aux élèves ; refusé pour un élève exclu ou si le CDI est complet. Droit « Arrivées ».
+
 ## v1.14.0 · Accès des élèves pendant un créneau
 
 - Chaque créneau du planning indique s’il accepte les élèves au CDI. Case décochée : la borne refuse les entrées pendant ce créneau (« Le CDI accueille une séance… »), les sorties restent possibles. Une fermeture exceptionnelle refuse toujours.

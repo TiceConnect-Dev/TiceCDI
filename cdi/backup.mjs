@@ -20,7 +20,7 @@ const schema = {
     unique: ["id", "plan_id"], references: {plan_id:"planning"} },
   attendance_members: { text: "attendance_id student_id first_name last_name class_name status", unique: ["attendance_id student_id"],
     references: {attendance_id:"attendance",student_id:"students"} },
-  visits: { text: "id student_id source class_name? attendance_id?", integer: "starts_at expires_at ended_at?", unique: ["id"],
+  visits: { text: "id student_id source class_name? attendance_id? reason?", integer: "starts_at expires_at ended_at?", unique: ["id"],
     references: {student_id:"students",attendance_id:"attendance"} },
   exclusions: { text: "id student_id reason until_day author", integer: "created_at revoked_at?", unique: ["id"], references: {student_id:"students"} },
   kiosk_settings: { text: "message", integer: "id is_open allow_second_hour use_hours capacity? hide_weekend", unique: ["id"] },
@@ -88,6 +88,10 @@ export async function exportBackup(m, clock, fail) {
 function upgradeBackup(backup) {
   for (const row of Array.isArray(backup?.tables?.planning) ? backup.tables.planning : []) {
     if (object(row) && !Object.hasOwn(row, "students_allowed")) row.students_allowed = row.kind === "fermeture" ? 0 : 1;
+  }
+  // Antérieures à la v1.15 : pas de motif de présence.
+  for (const row of Array.isArray(backup?.tables?.visits) ? backup.tables.visits : []) {
+    if (object(row) && !Object.hasOwn(row, "reason")) row.reason = null;
   }
 }
 export function inspectBackup(backup, fail) {

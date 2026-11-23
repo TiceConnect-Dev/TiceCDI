@@ -1,4 +1,6 @@
 const shapes = {
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
   book: '<path d="M12 6C9 3 5 3 2 4v15c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15"/>',
   scan: '<path d="M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4M7 9v6m3-6v6m4-6v6m3-6v6"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>',

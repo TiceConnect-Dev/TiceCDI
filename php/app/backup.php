@@ -136,6 +136,14 @@ function backupResource(Store $db, array $me, string $path, string $method, int 
             }
         }
     }
+    // Antérieures à la v1.15 : pas de motif de présence.
+    if (is_array($backup['tables']['visits'] ?? null)) {
+        foreach ($backup['tables']['visits'] as $index => $row) {
+            if (is_array($row) && !array_key_exists('reason', $row)) {
+                $backup['tables']['visits'][$index]['reason'] = null;
+            }
+        }
+    }
     $tables = $backup['tables'] ?? null;
     $date = $backup['created_at'] ?? null;
     if (!is_array($backup) || ($backup['format'] ?? null) !== 'cdi-backup' || ($backup['version'] ?? null) !== 1

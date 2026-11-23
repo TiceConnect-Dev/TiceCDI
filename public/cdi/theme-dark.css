@@ -108,6 +108,27 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] .boot-bar{background:#1c1f34}
   html[data-theme="dark"] .boot-bar i{background:var(--blue-fill)}
   html[data-theme="dark"] .cal-refused{color:#e97c84}
+  html[data-theme="dark"] .live-gauge,html[data-theme="dark"] .live-card{background:var(--white,#14151a)}
+  html[data-theme="dark"] .live-gauge{background:#1b3325;border-color:#2b4f39;color:#81e4b5}
+  html[data-theme="dark"] .live-gauge progress{background:#ffffffb0}
+  html[data-theme="dark"] .live-gauge progress::-webkit-progress-bar{background:#ffffffb0}
+  html[data-theme="dark"] .live-gauge[data-level=mid]{background:#312a1a;border-color:#5c4e32;color:#f4c971}
+  html[data-theme="dark"] .live-gauge[data-level=high]{background:#34261c;border-color:#5a4231;color:#f4a071}
+  html[data-theme="dark"] .live-gauge[data-level=full]{background:#2e191a;border-color:#4c292c;color:#e97c84}
+  html[data-theme="dark"] .live-state>.icon{background:#1b3325;color:#81e4b5}
+  html[data-theme="dark"] .live-state[data-open=false]>.icon{background:#2e191a;color:#e97c84}
+  html[data-theme="dark"] .live-classes progress{background:#171c2b;accent-color:#7faee6}
+  html[data-theme="dark"] .live-classes progress::-webkit-progress-bar{background:#171c2b}
+  html[data-theme="dark"] .live-classes progress::-webkit-progress-value{background:#2873cd}
+  html[data-theme="dark"] .live-classes progress::-moz-progress-bar{background:#2873cd}
+  html[data-theme="dark"] .live-events li{background:#312a1a;color:#f0c575}
+  html[data-theme="dark"] .live-events li[data-kind=exclu]{background:#2e191a;color:#e97c84}
+  html[data-theme="dark"] .live-events li[data-kind=complet]{background:#34261c;color:#f49f71}
+  html[data-theme="dark"] .notif-badge{background:#d61f2a}
+  html[data-theme="dark"] .notif-panel{background:var(--white,#14151a)}
+  html[data-theme="dark"] .arrival-option{background:var(--white,#14151a)}
+  html[data-theme="dark"] .pill-danger{background:#2e191a;color:#e97c84}
+  html[data-theme="dark"] .reason-chip{border:1px solid #232940}
   html[data-theme="dark"] body{background:var(--canvas)}
   html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}

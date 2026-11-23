@@ -4,6 +4,7 @@ import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
 import { siecleRows } from "./shared.js";
 import { routePath, urlFor, brand, api, cardCode, loader, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
+import { editReason, manualArrival, renderLive, startNotifications } from "./live.js";
 import { renderConnection, renderDevices, renderSecurity, securityAlerts } from "./account.js";
 
 const app = document.querySelector("#app");
@@ -18,7 +19,7 @@ const pill = (text, tone = "") => `<span class="pill ${tone ? "pill-" + tone : "
 
 function header(area = "home", canActivate = false) {
   const links=themeButton()+`<a href="${urlFor("/notice")}" title="Données personnelles">${icon("info")}<span class="sr-label">Données personnelles</span></a>`+
-    (area==="admin" ? `${canActivate?`<a href="${urlFor("/gestion/borne-poste")}" title="Activer la borne">${icon("scan")}<span class="sr-label">Activer la borne</span></a>`:""}
+    (area==="admin" ? `${me && ["presence","sorties","arrivees"].some((right)=>me.rights.includes(right)) ? `<span class="notif-wrap"><button id="notif-button" class="notif-button" type="button" title="Alertes" aria-label="Alertes">${icon("bell")}<span class="notif-badge" hidden></span></button><div id="notif-panel" class="notif-panel" role="dialog" aria-label="Alertes du CDI" hidden></div></span>` : ""}${canActivate?`<a href="${urlFor("/gestion/borne-poste")}" title="Activer la borne">${icon("scan")}<span class="sr-label">Activer la borne</span></a>`:""}
       <button id="logout" type="button" title="Déconnexion">${icon("logout")}<span class="sr-label">Déconnexion</span></button>`
       : `<a href="${urlFor("/gestion")}" title="Espace personnel">${icon("lock")}<span class="sr-label">Espace personnel</span></a>`);
   return `<header class="masthead"><div class="wrap masthead-inner">
@@ -480,6 +481,7 @@ function rightsSummary(rights) {
 }
 // Menu de gestion : [clé, titre de la page, icône, droits, groupe, libellé court du menu].
 const tabs = [
+  ["direct", "Tableau de bord en direct", "pulse", ["presence", "sorties", "arrivees"], "jour", "En direct"],
   ["presences", "Présences", "users", ["presence", "sorties", "arrivees"], "jour"],
   ["planning", "Planning du CDI", "calendar", ["planning","planning_voir"], "jour", "Planning"],
   ["seances", "Fiches d’appel", "check", ["arrivees","seances_voir"], "jour"],
@@ -558,6 +560,7 @@ function adminShell(user, selected) {
     catch (error) { toast(error.message, "error"); }
   });
   $("#main").addEventListener("click", actionHandler);
+  if ($("#notif-button")) startNotifications($("#notif-button"), $("#notif-panel"), { toast });
   // Navigation dans l’espace de gestion sans recharger la page : seul le contenu change.
   $(".sidebar nav").addEventListener("click", (event) => {
     const link = event.target.closest("a.side-link");
@@ -634,8 +637,11 @@ async function render() {
   clearTimeout(presenceExpiryTimer);
   clearTimeout(filterDebounce);
   if (["presences", "eleves", "classes", "badges"].includes(view)) classes = (await gestion("classes")).rows;
-  if (view === "presences") {
-    $("#main").innerHTML = section("Présences au CDI", "Consultez les élèves présents et leur heure de départ prévue.", button("Actualiser", "refresh", 'data-action="refresh"') + (can("arrivees") ? button("Arrivée groupée","users",'data-action="class-arrival"',"primary") : ""))
+  if (view === "direct") {
+    await renderLive($("#main"), { section, button, canArrive:can("arrivees"),
+      openArrival:(done) => manualArrival({ dialogForm, toast, done }), setTimer:(timer) => { refreshTimer = timer; } });
+  } else if (view === "presences") {
+    $("#main").innerHTML = section("Présences au CDI", "Consultez les élèves présents et leur heure de départ prévue.", button("Actualiser", "refresh", 'data-action="refresh"') + (can("arrivees") ? button("Ajouter un élève","plus",'data-action="manual-arrival"') + button("Arrivée groupée","users",'data-action="class-arrival"',"primary") : ""))
       + '<div id="metrics" class="metrics"></div><section class="panel table-panel"><div class="table-top"><h2>Élèves présents</h2>'
       + filter() + '</div><div id="roster"></div></section>';
     bindFilters(renderPresence);
@@ -759,10 +765,12 @@ function renderPresence() {
     ["grid",capacity===null ? new Set(records.map(row=>row.class_name)).size : places,capacity===null ? "Classes représentées" : "Places disponibles sur "+capacity],
   ];
   $("#metrics").innerHTML = metrics.map(([glyph, value, title]) => `<div class="metric">${box(glyph)}<div><b>${value}</b><span>${title}</span></div></div>`).join("");
-  const actions = can("sorties") || can("exclusions");
-  roster.innerHTML = visible.length ? table(["Élève","Classe","Arrivée","Départ prévu",...(actions ? ["Actions"] : [])], visible.map((row) =>
+  const actions = can("sorties") || can("exclusions") || can("arrivees");
+  const editReasons = can("sorties") || can("arrivees");
+  roster.innerHTML = visible.length ? table(["Élève","Classe","Arrivée","Départ prévu","Motif",...(actions ? ["Actions"] : [])], visible.map((row) =>
     `<tr><td>${identity(row)}</td><td>${pill(row.class_name,"gray")}</td><td>${time(row.starts_at)}${row.source === "classe" ? "<small>En classe</small>" : row.source === "groupe" ? "<small>En groupe</small>" : ""}</td>
     <td>${pill(time(row.expires_at),row.expires_at - presenceNow <= 15 * 60_000 ? "gray" : "green")}</td>
+    <td>${editReasons ? `<button type="button" class="reason-chip ${row.reason ? "" : "is-empty"}" data-action="visit-reason" data-id="${e(row.id)}" title="Modifier le motif">${row.reason ? e(row.reason) : "Ajouter"}</button>` : row.reason ? e(row.reason) : "—"}</td>
     ${actions ? `<td><div class="button-row">${can("sorties") ? rowAction("Prolonger","clock","visit-extend",row.id) + rowAction("Sortie","logout","visit-close",row.id) : ""}${can("exclusions") ? rowAction("Exclure","ban","exclude-visit",row.id,"danger tiny") : ""}</div></td>` : ""}</tr>`))
     : empty(records.length ? "Aucun résultat" : "Aucun élève présent", records.length ? "Modifiez la recherche ou le filtre de classe." : "Les élèves apparaissent ici dès leur passage à la borne.");
 }
@@ -1153,6 +1161,8 @@ function actionHandler(event) {
   const { action, id } = trigger.dataset;
   const record = records.find((entry) => entry.id === id);
   const classRow = classes.find((entry) => entry.id === id);
+  if (action === "visit-reason" && record) editReason({ dialogForm, visit:record, done:() => fetchPresence() });
+  if (action === "manual-arrival" && can("arrivees")) manualArrival({ dialogForm, toast, done:() => fetchPresence() });
   if (action === "class-arrival" && can("arrivees")) startCall(classes,dialogForm,{roster_id:activeFilters.class}).catch(error=>toast(error.message,"error"));
   if (action === "refresh") fetchPresence().catch((error) => toast(error.message, "error"));
   if (action === "sample") downloadSample();
