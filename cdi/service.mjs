@@ -11,6 +11,7 @@ import { changeCall, changeGroup, finishSession, groups, members, roster, sessio
 import { archiveRows, rollover, years } from "./school-year.mjs";
 import { changeSlot, duplicateWeek, hourLength as HOUR, kioskClosure, normalizeHours, openingHours, parisClock, parisMidnight, presenceDeadline, saveOpeningHours, shiftDay, validDay, weekday, weekPlanning } from "./calendar.mjs";
 import { classRoster, groupArrival } from "./operations.mjs";
+import { RESET_TARGETS, checkReset, resetCounts, resetData } from "./reset.mjs";
 import { capacityAlert, excludedAttempt, fullRefused, recentEvents } from "./events.mjs";
 
 // Droits : « gérer » (clé simple) ou « consulter » (suffixe _voir) par rubrique, plus des actions ponctuelles.
@@ -748,6 +749,14 @@ async function dispatch(request, env, options) {
     const before=Number(url.searchParams.get("before")??(clock+1));
     if (!Number.isSafeInteger(before) || before<0 || before>clock+1000) fail(400,"Page de journal invalide.");
     return json(await auditRows(m,area,before));
+  }
+  if (path==="/api/gestion/reinitialisation" && ["GET","POST"].includes(method)) {
+    if (!me.admin) fail(403,"La réinitialisation est réservée aux administrateurs.");
+    if (method==="GET") {
+      const scope=url.searchParams.get("scope")==="periode"?"periode":"tout";
+      return json(await resetCounts(m,checkReset({targets:RESET_TARGETS,confirm:"VIDER",scope,from:url.searchParams.get("from"),to:url.searchParams.get("to")},today(),fail)));
+    }
+    return json(await resetData(m,me,await payload(request),today(),fail));
   }
   if (path==="/api/gestion/annees" && ["GET","POST"].includes(method)) {
     if (!me.admin) fail(403,"Le passage d’année est réservé aux administrateurs.");

@@ -4,6 +4,7 @@ import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
 import { siecleRows } from "./shared.js";
 import { routePath, urlFor, brand, api, cardCode, loader, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
+import { renderReset } from "./reset.js";
 import { editReason, manualArrival, renderLive, startNotifications } from "./live.js";
 import { renderConnection, renderDevices, renderSecurity, securityAlerts } from "./account.js";
 
@@ -500,6 +501,7 @@ const tabs = [
   ["annees", "Années scolaires", "calendar", ["admin"], "admin"],
   ["journal", "Journal des modifications", "chart", ["journal"], "admin", "Journal"],
   ["sauvegarde", "Sauvegarde et restauration", "download", ["sauvegarde","restaurer"], "admin", "Sauvegardes"],
+  ["reinitialisation", "Réinitialiser les données", "trash", ["admin"], "admin", "Réinitialiser"],
   ["confidentialite", "Établissement et données personnelles", "info", ["admin"], "admin", "Données personnelles"],
   ["securite", "Sécurité du compte", "shield", ["self"], "compte", "Sécurité du compte"],
 ];
@@ -678,6 +680,8 @@ async function render() {
     await renderJournal($("#main"),{section,toast});
   } else if (view === "sauvegarde") {
     await renderBackup($("#main"),{section,toast,confirmDialog,canExport:can("sauvegarde"),canRestore:can("restaurer")});
+  } else if (view === "reinitialisation") {
+    await renderReset($("#main"), { section, toast, canBackup:can("sauvegarde") });
   } else if (view === "annees") {
     await renderYears($("#main"),{section,toast,confirmDialog,readCsv});
   } else if (view === "statistiques") {

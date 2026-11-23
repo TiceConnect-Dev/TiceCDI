@@ -572,6 +572,15 @@ async function devicesTest(host) {
   assert.ok(live.present>=1 && Array.isArray(live.arrivals) && Array.isArray(live.events) && typeof live.open==="boolean");
   assert.ok(Array.isArray((await host.get("/gestion/notifications")).rows));
   db.prepare("UPDATE visits SET ended_at=? WHERE ended_at IS NULL").run(Date.now());
+  // Réinitialisation : compte, refus sans confirmation, suppression par période, trace conservée au journal.
+  const counted=await host.get("/gestion/reinitialisation?scope=tout");
+  assert.ok(counted.passages>=1 && counted.alertes>=0 && typeof counted.journal==="number");
+  await host.post("/gestion/reinitialisation",{targets:["passages"],scope:"tout",confirm:"non"},host.admin,400);
+  const day=parisClock(Date.now()).day;
+  const cleared=await host.post("/gestion/reinitialisation",{targets:["passages","alertes","journal"],scope:"periode",from:day,to:day,confirm:"VIDER"});
+  assert.ok(cleared.counts.passages>=1);
+  assert.equal((await host.get("/gestion/reinitialisation?scope=periode&from="+day+"&to="+day)).passages,0);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM audit_log WHERE action='Réinitialisation des données'").get().n,1);
   // Carte scannée : premier passage = entrée, second passage = sortie.
   const card=db.prepare("SELECT code FROM students WHERE search_name LIKE '%zelie%'").all()[0].code;
   const first=await (await kiosk("auto",{code:card.toLowerCase()})).json();

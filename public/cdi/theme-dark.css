@@ -129,6 +129,9 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] .arrival-option{background:var(--white,#14151a)}
   html[data-theme="dark"] .pill-danger{background:#2e191a;color:#e97c84}
   html[data-theme="dark"] .reason-chip{border:1px solid #232940}
+  html[data-theme="dark"] .reset-item:has(input:checked){border-color:#e58087;background:#231315}
+  html[data-theme="dark"] .reset-form .btn.danger{background:#c62a35;border-color:#e48188}
+  html[data-theme="dark"] .reset-form .btn.danger:hover{background:#a8202a}
   html[data-theme="dark"] body{background:var(--canvas)}
   html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}
