@@ -1,5 +1,5 @@
 FROM node:24-alpine
-LABEL org.opencontainers.image.title="TiceCDI" org.opencontainers.image.licenses="LicenseRef-TiceCDI-NonCommercial"
+LABEL org.opencontainers.image.title="TiceCDI" org.opencontainers.image.licenses="LicenseRef-TiceCDI-NonCommercial" org.opencontainers.image.source="https://github.com/TiceConnect-Dev/TiceCDI"
 WORKDIR /app
 ENV NODE_ENV=production PORT=8080 CDI_DATA_DIR=/data
 # L'application n'a aucune dépendance npm : npm, npx, yarn et corepack sont retirés de l'image

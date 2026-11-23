@@ -21,6 +21,10 @@
 
 - Navigation sans rechargement dans l’espace de gestion, barre de progression et écran de chargement affichés seulement si l’attente dépasse 300 ms.
 
+**Distribution**
+
+- L’image Docker est désormais publiée dans l’organisation : `ghcr.io/ticeconnect-dev/ticecdi`. Dans la stack Portainer, remplacez `image: ghcr.io/xeros59/gestion-cdi:latest` par `image: ghcr.io/ticeconnect-dev/ticecdi:latest` en gardant le même nom de stack (le volume `cdi_data` est conservé).
+
 ## v1.11.0 · Statistiques détaillées, borne épurée
 
 **Statistiques**

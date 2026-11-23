@@ -5,7 +5,7 @@ L’image utilise l’édition Docker du CDI, avec Node.js et SQLite inclus. Le 
 ## Déployer depuis le registre GitHub
 
 1. Dans ton environnement Portainer **Docker Standalone**, ouvre **Stacks → Add stack**.
-2. Choisis un nom, par exemple `gestion-cdi`. Colle le contenu de [compose.portainer.yaml](../compose.portainer.yaml) dans **Web editor**. La stack utilise l’image publique `ghcr.io/xeros59/gestion-cdi:latest`.
+2. Choisis un nom, par exemple `gestion-cdi`. Colle le contenu de [compose.portainer.yaml](../compose.portainer.yaml) dans **Web editor**. La stack utilise l’image publique `ghcr.io/ticeconnect-dev/ticecdi:latest`.
 3. Ajoute les variables dont tu as besoin dans **Environment variables**.
 
 | Variable | Valeur par défaut | Usage |
@@ -38,7 +38,7 @@ Ne publie pas le port 8080 directement sur Internet : laisse `CDI_BIND_IP=127.0.
 
 ## Importer l’image depuis un fichier
 
-1. Télécharge [TiceCDI-Docker-amd64.tar.gz](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) depuis la release GitHub.
+1. Télécharge [TiceCDI-Docker-amd64.tar.gz](https://github.com/TiceConnect-Dev/TiceCDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) depuis la release GitHub.
 2. Dans Portainer, ouvre **Images → Import**, sélectionne le fichier et clique sur **Upload**. En SSH sur l’hôte Docker, la commande équivalente est `docker load -i TiceCDI-Docker-amd64.tar.gz`.
 3. Déploie la même stack avec `CDI_PULL_POLICY=never`. Portainer utilisera le tag importé sur l’hôte.
 
