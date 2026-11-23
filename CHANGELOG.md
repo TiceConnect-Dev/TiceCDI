@@ -1,5 +1,12 @@
 # Journal des versions
 
+## v1.12.1 · Jours purgés avant la v1.12
+
+- L’affluence jour × heure affiche aussi les jours purgés avant la v1.12 (par exemple un dimanche) avec leur total dans une colonne « Sans heure » : plus aucun jour ne disparaît du tableau ni du PDF.
+- Le détail par classe indique le nombre de passages dont la classe n’a pas été conservée.
+- Borne adaptée au tactile : champ, noms et boutons plus grands (cibles de 72 px et plus), deux colonnes de résultats sur grand écran. Le bouton « Installer la borne » est retiré (installation par le menu du navigateur).
+- Cartes codes-barres : de nouveau trois par ligne à l’impression, code-barres sur toute la largeur de la carte.
+
 ## v1.12.0 · Statistiques complètes et graphiques, borne repensée
 
 **Statistiques**

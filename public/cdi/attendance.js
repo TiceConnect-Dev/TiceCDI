@@ -83,17 +83,23 @@ export function weekdayAverages(daily) {
   return buckets.map((bucket,index)=>({name:weekdayNames[index],average:bucket.days?bucket.total/bucket.days:0,total:bucket.total,days:bucket.days})).filter(row=>row.days);
 }
 // Grille jour × heure : intensité relative, toutes les valeurs affichées. Les jours sont triés du lundi au dimanche.
-export function heatGrid(hours) {
-  if(!hours?.length) return null;
-  const known=hours.map(row=>row.hour);
-  const first=Math.min(...known), last=Math.max(...known);
-  const days=[...new Set(hours.map(row=>row.weekday))].sort((a,b)=>a-b);
-  const cell=new Map();
-  for(const row of hours) cell.set(row.weekday+"-"+row.hour,(cell.get(row.weekday+"-"+row.hour)??0)+row.visits);
+// Les jours purgés avant la v1.12 n’ont gardé que leur total : il apparaît dans « Heure non conservée » (unknown).
+export function heatGrid(hours, daily=[]) {
+  const cell=new Map(), byDay=new Map(), known=new Map();
+  for(const row of hours??[]) {
+    cell.set(row.weekday+"-"+row.hour,(cell.get(row.weekday+"-"+row.hour)??0)+row.visits);
+    known.set(row.weekday,(known.get(row.weekday)??0)+row.visits);
+  }
+  for(const row of daily) { const weekday=(new Date(row.day+"T12:00:00Z").getUTCDay()+6)%7+1; byDay.set(weekday,(byDay.get(weekday)??0)+row.visits); }
+  const days=[...new Set([...known.keys(),...[...byDay].filter(([,v])=>v>0).map(([k])=>k)])].sort((a,b)=>a-b);
+  if(!days.length) return null;
+  const hoursKnown=(hours??[]).map(row=>row.hour);
+  const first=hoursKnown.length?Math.min(...hoursKnown):8, last=hoursKnown.length?Math.max(...hoursKnown):8;
   const max=Math.max(1,...cell.values());
-  const slots=Array.from({length:last-first+1},(_,i)=>first+i);
-  return {days,slots,max,value:(weekday,hour)=>cell.get(weekday+"-"+hour)??0,
-    total:(weekday)=>slots.reduce((sum,hour)=>sum+(cell.get(weekday+"-"+hour)??0),0)};
+  const slots=hoursKnown.length?Array.from({length:last-first+1},(_,i)=>first+i):[];
+  const unknown=(weekday)=>Math.max(0,(byDay.get(weekday)??0)-(known.get(weekday)??0));
+  return {days,slots,max,value:(weekday,hour)=>cell.get(weekday+"-"+hour)??0,unknown,hasUnknown:days.some(day=>unknown(day)>0),
+    total:(weekday)=>Math.max(byDay.get(weekday)??0,known.get(weekday)??0)};
 }
 // Arrivées cumulées par heure (tous jours confondus).
 export function hourTotals(hours) {
@@ -161,20 +167,23 @@ function evolution(data) {
 }
 function heatPanel(grid) {
   if(!grid) return "";
-  const body=`<div class="scroll-table"><table class="heatmap"><thead><tr><th scope="col">Jour</th>${grid.slots.map(h=>`<th scope="col">${h}h</th>`).join("")}<th scope="col">Total</th></tr></thead>
+  const body=`<div class="scroll-table"><table class="heatmap"><thead><tr><th scope="col">Jour</th>${grid.slots.map(h=>`<th scope="col">${h}h</th>`).join("")}${grid.hasUnknown?`<th scope="col">Sans heure</th>`:""}<th scope="col">Total</th></tr></thead>
     <tbody>${grid.days.map(weekday=>`<tr><th scope="row">${weekdayNames[weekday-1]}</th>${grid.slots.map(hour=>{
       const value=grid.value(weekday,hour);
       const level=value?Math.max(1,Math.round(value/grid.max*5)):0;
       return `<td class="heat-${level}" title="${weekdayNames[weekday-1]} ${hour}h : ${value} passage(s)">${value||""}</td>`;
-    }).join("")}<td class="heat-total">${number(grid.total(weekday))}</td></tr>`).join("")}</tbody></table></div>`;
+    }).join("")}${grid.hasUnknown?`<td class="heat-unknown">${grid.unknown(weekday)?number(grid.unknown(weekday)):""}</td>`:""}<td class="heat-total">${number(grid.total(weekday))}</td></tr>`).join("")}</tbody></table></div>`
+    +(grid.hasUnknown?`<p class="hint">« Sans heure » : passages de jours purgés avant la mise à jour v1.12, dont seul le total a été gardé.</p>`:"");
   return panel("Affluence par jour et par heure","Nombre d’arrivées selon le jour de la semaine et l’heure, sur toute la période.",body,"stat-wide");
 }
+export const unattributed=data=>Math.max(0,data.visits-data.classes.reduce((t,row)=>t+row.visits,0));
 function classTable(data) {
   if(!data.classes.length) return "";
   const floor=row=>row.partial?"≥ ":"";
   const body=`<div class="scroll-table stat-class-table"><table><thead><tr><th>Classe</th><th>Niveau</th><th>Passages</th><th>Part</th><th>Élèves venus</th><th>Effectif</th><th>Taux de venue</th><th>Passages / élève</th><th>Avec la classe ou un groupe</th></tr></thead>
     <tbody>${data.classes.map(row=>`<tr><td><strong>${e(row.name)}</strong></td><td>${e(levelOf(row.name))}</td><td>${number(row.visits)}</td><td>${percent(row.visits,data.visits)}</td><td>${floor(row)}${number(row.students)}</td>
       <td>${row.size?number(row.size):"—"}</td><td>${row.size?floor(row)+percent(row.students,row.size):"—"}</td><td>${row.students?one(row.visits/row.students):"—"}</td><td>${number(row.group_visits)}</td></tr>`).join("")}</tbody></table></div>`
+    +(unattributed(data)?`<p class="hint">${number(unattributed(data))} passage(s) de jours purgés avant la v1.12 ne sont comptés que dans les totaux (classe non conservée).</p>`:"")
     +(data.classes.some(row=>row.partial)?`<p class="hint">« ≥ » : les jours archivés ne conservent que le nombre d’élèves par jour, sans identité ; le total réel peut être supérieur.</p>`:"");
   return panel("Détail par classe",`${number(data.classes.length)} classe(s) venue(s) sur la période.`,body,"stat-wide table-like");
 }
@@ -211,8 +220,8 @@ export function statsViews(data) {
   const hours=hourTotals(data.hours);
   const busiestDay=weekdays.reduce((best,row)=>!best||row.average>best.average?row:best,null);
   const busiestHour=hours.reduce((best,row)=>!best||row[1]>best[1]?row:best,null);
-  return {weekdays,hours,grid:heatGrid(data.hours),bars:periodBars(data.daily),months:monthRows(data.daily),levels:levelRows(data.classes),
-    reach:reach(data),busiestDay,busiestHour,levelOf};
+  return {weekdays,hours,grid:heatGrid(data.hours,data.daily),bars:periodBars(data.daily),months:monthRows(data.daily),levels:levelRows(data.classes),
+    reach:reach(data),busiestDay,busiestHour,levelOf,unattributed:unattributed(data)};
 }
 
 export async function renderStatistics(target,{section,toast,canExport}) {
