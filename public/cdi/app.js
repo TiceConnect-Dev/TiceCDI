@@ -173,11 +173,14 @@ function kiosk() {
     if(box.dataset.key===key) return;
     box.dataset.key=key;
     box.dataset.tone=item.tone;
+    box.classList.toggle("is-long",item.text.length>70);
     box.innerHTML=newsHtml(item,list);
     box.classList.remove("is-new"); void box.offsetWidth; box.classList.add("is-new");
   }
-  function renderNews() { paintNews($("#borne-news"),state.activated?display.announcements:[]); }
-  setInterval(()=>{ if(display.announcements.length>1){ newsIndex++; renderNews(); if(!$("#borne-idle").hidden) updateIdle(); } },8000);
+  // CDI fermé : aucune annonce, seul l’état « CDI fermé » reste affiché.
+  const shownNews=()=>state.activated && state.open ? display.announcements : [];
+  function renderNews() { paintNews($("#borne-news"),shownNews()); }
+  setInterval(()=>{ if(shownNews().length>1){ newsIndex++; renderNews(); if(!$("#borne-idle").hidden) updateIdle(); } },8000);
 
   // Places libres en grand, avec une jauge.
   function renderPlaces() {
@@ -224,7 +227,7 @@ function kiosk() {
   function renderIdle() {
     $("#borne-idle").innerHTML=`<div class="borne-idle-box">
       <time id="idle-time"></time><span class="borne-idle-date" id="idle-date"></span>
-      <p class="borne-idle-state" id="idle-state"></p>
+      <p class="borne-idle-state" id="idle-state"></p><p class="borne-idle-reason" id="idle-reason" hidden></p>
       <div class="borne-news" id="idle-news" hidden></div>
       <ul class="borne-rules" id="idle-rules"></ul>
       <p class="borne-idle-hint">${icon("scan")} Touche l’écran ou scanne ta carte</p></div>`;
@@ -236,18 +239,20 @@ function kiosk() {
     set("idle-time",clockFormat.format(now)); set("idle-date",dateFormat.format(now));
     set("idle-state",!state.open?"CDI fermé":state.places===0?"CDI complet":state.places!==null&&state.places!==undefined?`CDI ouvert · ${state.places} place${state.places>1?"s":""} libre${state.places>1?"s":""}`:"CDI ouvert");
     const status=$("#idle-state"); if(status) status.dataset.state=state.open&&state.places!==0?"open":"closed";
-    const news=$("#idle-news"); if(news) paintNews(news,display.announcements);
+    const reason=$("#idle-reason"); if(reason) { const text=!state.open?state.reason||"":""; if(reason.textContent!==text) reason.textContent=text; reason.hidden=!text; }
+    const news=$("#idle-news"); if(news) paintNews(news,shownNews());
     const rules=$("#idle-rules"), html=display.rules.map(rule=>`<li>${e(rule)}</li>`).join("");
     if(rules && rules.dataset.html!==html) { rules.dataset.html=html; rules.innerHTML=html; rules.hidden=!html; }
   }
   function sleep() {
-    if(!display.idle_enabled || !state.activated || busy || input.value.trim()) return armIdle();
+    if(!state.activated || busy || input.value.trim() || (!display.idle_enabled && state.open)) return armIdle();
     renderIdle();
     $("#borne-idle").hidden=false;
     input.focus({preventScroll:true});
   }
   function armIdle() { clearTimeout(idleTimer); if(display.idle_enabled) idleTimer=setTimeout(sleep,display.idle_delay*1000); }
-  function wake() { if(!$("#borne-idle").hidden) $("#borne-idle").hidden=true; armIdle(); }
+  // CDI fermé : l’écran de repos reste affiché (un scan de sortie reste possible et s’affiche par-dessus).
+  function wake() { if(state.activated && !state.open) return; if(!$("#borne-idle").hidden) $("#borne-idle").hidden=true; armIdle(); }
   $("#borne-idle").addEventListener("pointerdown",event=>{ event.preventDefault(); wake(); input.focus({preventScroll:true}); });
   for(const type of ["pointerdown","keydown"]) root.addEventListener(type,wake,{passive:true});
 
@@ -259,7 +264,12 @@ function kiosk() {
       const wasHidden=form.hidden;
       const before=JSON.stringify(display);
       if(settings.display) display=settings.display;
-      state={activated:Boolean(settings.activated),open:Boolean(settings.open),places:settings.places,capacity:settings.capacity,occupied:settings.occupied??0,today:settings.today??null};
+      const wasClosed=state.activated && !state.open;
+      state={activated:Boolean(settings.activated),open:Boolean(settings.open),reason:settings.reason??"",places:settings.places,capacity:settings.capacity,occupied:settings.occupied??0,today:settings.today??null};
+      const isClosed=state.activated && !state.open;
+      root.classList.toggle("is-closed",isClosed);
+      if(isClosed && $("#borne-idle").hidden) { renderIdle(); $("#borne-idle").hidden=false; clearTimeout(idleTimer); }
+      if(wasClosed && !isClosed) { $("#borne-idle").hidden=true; armIdle(); }
       form.hidden=!settings.activated;
       closed=!settings.open;
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
