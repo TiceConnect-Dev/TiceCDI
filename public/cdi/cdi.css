@@ -589,17 +589,18 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .borne-places[data-level=mid]{background:#fff4dc;color:#7a5200}
 .borne-places[data-level=high]{background:#ffe7d6;color:#9a3d0a}
 .borne-places[data-level=full]{background:#fde3e5;color:#8b1720}
-.borne-news{position:relative;display:flex;align-items:center;justify-content:center;min-height:72px;padding:16px 64px;border-radius:16px;text-align:center;
+.borne-news{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:72px;padding:16px 28px;border-radius:16px;text-align:center;
   font-weight:800;font-size:clamp(1.2rem,2.1vw,1.65rem);line-height:1.3;background:#1f3fbf;color:#fff;box-shadow:0 6px 18px #00009126}
-.borne-news p{display:inline-flex;align-items:center;justify-content:center;gap:12px;margin:0}
-.borne-news p .icon{width:30px;height:30px;flex:none}
+.borne-news.is-long{font-size:clamp(1.05rem,1.7vw,1.35rem)}
+.borne-news p{display:block;margin:0;max-width:100%;text-wrap:balance;overflow-wrap:anywhere}
+.borne-news p .icon{display:inline-block;width:1.2em;height:1.2em;margin-right:.45em;vertical-align:-.22em}
 .borne-news.is-new{animation:borne-news-in .45s ease-out}
 .borne-news[data-tone=succes]{background:#157347}
 .borne-news[data-tone=attention]{background:#b45f00}
 .borne-news[data-tone=alerte]{background:#b3202b}
 .borne-news[data-tone=evenement]{background:#6a32c2}
-.borne-news-dots{position:absolute;right:20px;top:50%;transform:translateY(-50%);display:flex;gap:6px}
-.borne-news-dots i{width:9px;height:9px;border-radius:50%;background:#fff;opacity:.35}
+.borne-news-dots{display:flex;justify-content:center;gap:6px}
+.borne-news-dots i{width:8px;height:8px;border-radius:50%;background:#fff;opacity:.35}
 .borne-news-dots i.on{opacity:1}
 @keyframes borne-news-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .borne-day{display:grid;gap:8px;padding-top:16px;border-top:1px solid var(--line)}
@@ -636,6 +637,7 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .borne-idle-state{padding:10px 22px;border-radius:999px;font-weight:700;font-size:clamp(1.1rem,1.8vw,1.4rem);background:#e3f4ea;color:#145c3a}
 .borne-idle-state[data-state=closed]{background:#fde3e5;color:#8b1720}
 .borne-idle .borne-news{width:100%;font-size:clamp(1.4rem,2.6vw,2rem);min-height:88px}
+.borne-idle .borne-news.is-long{font-size:clamp(1.2rem,2vw,1.6rem)}
 .borne-idle .borne-rules{justify-content:center}
 .borne-idle .borne-rules li{background:#ffffff1f;color:#e6e8ff}
 .borne-idle-hint{display:flex;align-items:center;gap:10px;color:#c9cdf5;font-weight:600;font-size:clamp(1rem,1.5vw,1.2rem);animation:borne-breathe 3.6s ease-in-out infinite}
@@ -783,3 +785,8 @@ body.is-navigating::before{content:"";position:fixed;top:0;left:0;z-index:50;hei
 @keyframes boot-slide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
 @media (prefers-reduced-motion:reduce){.loader-ring,.boot-bar i,body.is-navigating::before{animation-duration:2.4s}}
 .heat-unknown{color:var(--muted);font-style:italic}
+/* CDI fermé : la borne reste sur l’écran de repos, sans invitation à toucher ni annonce. */
+.borne-idle-reason{max-width:760px;color:#dfe2ff;font-weight:600;font-size:clamp(1.1rem,1.8vw,1.4rem)}
+.borne.is-closed .borne-idle{cursor:default}
+.borne.is-closed .borne-idle-hint{display:none}
+.borne.is-closed .borne-idle .borne-rules{display:none}
