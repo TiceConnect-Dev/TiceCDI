@@ -81,7 +81,7 @@ function kiosk() {
     const now=new Date();
     $("#borne-time").textContent=clockFormat.format(now); $("#borne-date").textContent=dateFormat.format(now);
     applyTheme();
-    if(!$("#borne-idle").hidden) renderIdle();
+    if(!$("#borne-idle").hidden) updateIdle();
   };
   // Thème : clair, sombre ou sombre entre deux heures (réglé dans la gestion).
   function applyTheme() {
@@ -164,16 +164,20 @@ function kiosk() {
   // Annonces : défilement toutes les 8 secondes, une couleur par annonce.
   let newsIndex=0, newsKey="";
   const toneIcon={info:"info",succes:"check",attention:"warning",alerte:"warning",evenement:"calendar"};
-  function renderNews() {
-    const list=display.announcements;
-    const box=$("#borne-news");
-    box.hidden=!list.length || !state.activated;
-    if(box.hidden) return;
-    const item=list[newsIndex%list.length];
+  const newsHtml=(item,list)=>`<p>${icon(toneIcon[item.tone]??"info")}<span>${e(item.text)}</span></p>${list.length>1?`<span class="borne-news-dots">${list.map((_,i)=>`<i class="${i===newsIndex%list.length?"on":""}"></i>`).join("")}</span>`:""}`;
+  // Une bulle n’est redessinée que si l’annonce affichée change (pas de clignotement à chaque actualisation).
+  function paintNews(box,list) {
+    box.hidden=!list.length;
+    if(box.hidden) { box.dataset.key=""; return; }
+    const item=list[newsIndex%list.length], key=newsIndex%list.length+"|"+item.tone+"|"+item.text+"|"+list.length;
+    if(box.dataset.key===key) return;
+    box.dataset.key=key;
     box.dataset.tone=item.tone;
-    box.innerHTML=`${icon(toneIcon[item.tone]??"info")}<p>${e(item.text)}</p>${list.length>1?`<span class="borne-news-dots">${list.map((_,i)=>`<i class="${i===newsIndex%list.length?"on":""}"></i>`).join("")}</span>`:""}`;
+    box.innerHTML=newsHtml(item,list);
+    box.classList.remove("is-new"); void box.offsetWidth; box.classList.add("is-new");
   }
-  setInterval(()=>{ if(display.announcements.length>1){ newsIndex++; renderNews(); if(!$("#borne-idle").hidden) renderIdle(); } },8000);
+  function renderNews() { paintNews($("#borne-news"),state.activated?display.announcements:[]); }
+  setInterval(()=>{ if(display.announcements.length>1){ newsIndex++; renderNews(); if(!$("#borne-idle").hidden) updateIdle(); } },8000);
 
   // Places libres en grand, avec une jauge.
   function renderPlaces() {
@@ -218,13 +222,23 @@ function kiosk() {
   // Écran de repos : horloge, état du CDI, annonce et règles ; un toucher ou un scan réveille la borne.
   let idleTimer;
   function renderIdle() {
-    const now=new Date(), item=display.announcements.length?display.announcements[newsIndex%display.announcements.length]:null;
     $("#borne-idle").innerHTML=`<div class="borne-idle-box">
-      <time>${clockFormat.format(now)}</time><span class="borne-idle-date">${dateFormat.format(now)}</span>
-      <p class="borne-idle-state" data-state="${state.open&&state.places!==0?"open":"closed"}">${!state.open?"CDI fermé":state.places===0?"CDI complet":state.places!==null&&state.places!==undefined?`CDI ouvert · ${state.places} place${state.places>1?"s":""} libre${state.places>1?"s":""}`:"CDI ouvert"}</p>
-      ${item?`<div class="borne-news" data-tone="${e(item.tone)}">${icon(toneIcon[item.tone]??"info")}<p>${e(item.text)}</p></div>`:""}
-      ${display.rules.length?`<ul class="borne-rules">${display.rules.map(rule=>`<li>${e(rule)}</li>`).join("")}</ul>`:""}
+      <time id="idle-time"></time><span class="borne-idle-date" id="idle-date"></span>
+      <p class="borne-idle-state" id="idle-state"></p>
+      <div class="borne-news" id="idle-news" hidden></div>
+      <ul class="borne-rules" id="idle-rules"></ul>
       <p class="borne-idle-hint">${icon("scan")} Touche l’écran ou scanne ta carte</p></div>`;
+    updateIdle();
+  }
+  // Mise à jour sans reconstruire l’écran : seuls les textes qui changent sont remplacés.
+  function updateIdle() {
+    const now=new Date(), set=(id,value)=>{ const node=$("#"+id); if(node && node.textContent!==value) node.textContent=value; };
+    set("idle-time",clockFormat.format(now)); set("idle-date",dateFormat.format(now));
+    set("idle-state",!state.open?"CDI fermé":state.places===0?"CDI complet":state.places!==null&&state.places!==undefined?`CDI ouvert · ${state.places} place${state.places>1?"s":""} libre${state.places>1?"s":""}`:"CDI ouvert");
+    const status=$("#idle-state"); if(status) status.dataset.state=state.open&&state.places!==0?"open":"closed";
+    const news=$("#idle-news"); if(news) paintNews(news,display.announcements);
+    const rules=$("#idle-rules"), html=display.rules.map(rule=>`<li>${e(rule)}</li>`).join("");
+    if(rules && rules.dataset.html!==html) { rules.dataset.html=html; rules.innerHTML=html; rules.hidden=!html; }
   }
   function sleep() {
     if(!display.idle_enabled || !state.activated || busy || input.value.trim()) return armIdle();
@@ -264,6 +278,7 @@ function kiosk() {
       const key=JSON.stringify(display.announcements);
       if(key!==newsKey){ newsKey=key; newsIndex=0; }
       renderPlaces(); renderNews(); renderDay(); renderRules(); applyTheme();
+      if(!$("#borne-idle").hidden) updateIdle();
       if(before!==JSON.stringify(display)) armIdle();
       if (form.hidden) { form.reset(); }
       else if(wasHidden) input.focus({preventScroll:true});
