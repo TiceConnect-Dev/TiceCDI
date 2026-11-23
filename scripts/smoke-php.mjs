@@ -558,6 +558,20 @@ async function devicesTest(host) {
   const foreign=await fetch(host.route("/api/borne/sortie"),{method:"POST",headers:{"Content-Type":"application/json",Cookie:"cdi_device="+"0".repeat(64)},body:JSON.stringify({ref:search.rows[0].ref})});
   await foreign.arrayBuffer(); assert.equal(foreign.status,403);
   assert.equal((await kiosk("sortie",{ref:search.rows[0].ref})).status,200);
+  // Arrivée manuelle par le personnel, tableau de bord en direct et notifications.
+  const found=(await host.post("/gestion/presences/recherche",{q:"zelie"})).rows;
+  assert.equal(found.length,1); assert.equal(found[0].present,false);
+  const manual=await host.post("/gestion/presences",{student_id:found[0].id,two_hours:false,reason:" Lecture "});
+  assert.ok(manual.expires_at>Date.now() && manual.already===false);
+  const visit=(await host.get("/gestion/presences")).rows.find(row=>row.student_id===found[0].id);
+  assert.equal(visit.reason,"Lecture");
+  assert.equal((await host.patch("/gestion/presences/"+visit.id,{reason:"Recherche documentaire"})).reason,"Recherche documentaire");
+  await host.patch("/gestion/presences/"+visit.id,{reason:"x".repeat(61)},host.admin,400);
+  assert.equal((await host.post("/gestion/presences",{student_id:found[0].id})).already,true);
+  const live=await host.get("/gestion/direct");
+  assert.ok(live.present>=1 && Array.isArray(live.arrivals) && Array.isArray(live.events) && typeof live.open==="boolean");
+  assert.ok(Array.isArray((await host.get("/gestion/notifications")).rows));
+  db.prepare("UPDATE visits SET ended_at=? WHERE ended_at IS NULL").run(Date.now());
   // Carte scannée : premier passage = entrée, second passage = sortie.
   const card=db.prepare("SELECT code FROM students WHERE search_name LIKE '%zelie%'").all()[0].code;
   const first=await (await kiosk("auto",{code:card.toLowerCase()})).json();

@@ -1,9 +1,9 @@
 // Service worker de TiceCDI : la borne reste affichée et se reconnecte seule si le serveur ou le réseau tombe.
 // Les données (API) ne sont jamais mises en cache : seuls les fichiers de l'interface le sont.
-const VERSION = "ticecdi-1.14.0";
+const VERSION = "ticecdi-1.15.0";
 const base = new URL("cdi/", self.registration.scope);
 const shell = ["cdi.css", "theme-dark.css", "app.js", "shared.js", "schedule.js", "attendance.js", "school.js", "planning-pdf.js",
-  "privacy.js", "account.js", "qr.js", "charts.js", "offline.js", "ticecdi-logo.webp", "ticecdi-icon.webp"].map((file) => new URL(file, base).href);
+  "privacy.js", "account.js", "qr.js", "charts.js", "live.js", "offline.js", "ticecdi-logo.webp", "ticecdi-icon.webp"].map((file) => new URL(file, base).href);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(shell)).then(() => self.skipWaiting()));
