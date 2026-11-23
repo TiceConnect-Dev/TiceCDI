@@ -56,15 +56,17 @@ export const scheduleKinds = ["cours", "atelier", "reservation", "fermeture", "a
 const manualClosed = "Les inscriptions au CDI sont fermées pour le moment.";
 const hoursClosed = "Le CDI est fermé selon les horaires d’ouverture.";
 const eventClosed = "Le CDI est fermé exceptionnellement sur ce créneau.";
+const sessionClosed = "Le CDI accueille une séance sur ce créneau : la borne n’accepte pas d’autres élèves.";
 
 export function kioskClosure(clock) {
   const {day,weekday,minute} = parisClock(clock);
   return { sql:`SELECT CASE
     WHEN EXISTS (SELECT 1 FROM kiosk_settings WHERE id=1 AND is_open=0) THEN ?
     WHEN EXISTS (SELECT 1 FROM planning WHERE day=? AND kind='fermeture' AND start_min<=? AND end_min>?) THEN ?
+    WHEN EXISTS (SELECT 1 FROM planning WHERE day=? AND students_allowed=0 AND start_min<=? AND end_min>?) THEN ?
     WHEN EXISTS (SELECT 1 FROM kiosk_settings WHERE id=1 AND use_hours=1)
       AND NOT EXISTS (SELECT 1 FROM opening_hours WHERE weekday=? AND start_min<=? AND end_min>?) THEN ?
-    ELSE '' END AS reason`, params:[manualClosed, day, minute, minute, eventClosed, weekday, minute, minute, hoursClosed] };
+    ELSE '' END AS reason`, params:[manualClosed, day, minute, minute, eventClosed, day, minute, minute, sessionClosed, weekday, minute, minute, hoursClosed] };
 }
 
 export function normalizeHours(rows, fail) {
@@ -97,7 +99,7 @@ export function saveOpeningHours(m, enabled, hours, me, before) {
     audit(m,me,"horaires","Modification des horaires","Horaires d’ouverture",before,{ use_hours:enabled,hours }),
   ]);
 }
-const details = `SELECT p.id,p.day,p.start_min,p.end_min,p.title,p.kind,COALESCE(c.name,g.name) AS class_name`;
+const details = `SELECT p.id,p.day,p.start_min,p.end_min,p.title,p.kind,p.students_allowed,COALESCE(c.name,g.name) AS class_name`;
 export async function weekPlanning(m, start, internal = false) {
   const [data, rows] = await Promise.all([
     openingHours(m),
@@ -117,16 +119,19 @@ export async function changeSlot(m, item, body, fail, nameLabel, me) {
   const notes = typeof body.notes==="string" ? body.notes.trim() : "";
   if (notes.length>600) fail(400,"Les notes peuvent contenir jusqu’à 600 caractères.");
   if (classId && !await m.one("SELECT id FROM classes WHERE id=?",classId)) fail(400,"La classe sélectionnée est introuvable.");
-  const before = item ? await m.one("SELECT day,start_min,end_min,title,kind,class_id,group_id,notes FROM planning WHERE id=?",item) : null;
+  const before = item ? await m.one("SELECT day,start_min,end_min,title,kind,class_id,group_id,notes,students_allowed FROM planning WHERE id=?",item) : null;
   if (item && !before) fail(404,"Créneau introuvable.");
+  if (body.students_allowed!==undefined && typeof body.students_allowed!=="boolean") fail(400,"Indiquez si la borne accepte les élèves pendant ce créneau.");
+  // Fermeture : jamais d’élèves. Sinon le choix du formulaire, ou la valeur précédente, ou « accepter » par défaut.
+  const students = kind==="fermeture" ? 0 : body.students_allowed!==undefined ? Number(body.students_allowed) : before ? before.students_allowed : 1;
   if (groupId && groupId!==before?.group_id && !await m.one("SELECT id FROM school_groups WHERE id=? AND active=1",groupId)) fail(400,"Le groupe sélectionné est indisponible.");
   const free = "NOT EXISTS (SELECT 1 FROM planning WHERE day=? AND start_min<? AND end_min>? AND id<>?)";
   const ident = item ?? crypto.randomUUID();
-  const values = [day,start,end,title,kind,classId,groupId,notes];
+  const values = [day,start,end,title,kind,classId,groupId,notes,students];
   const statement = item
-    ? m.stmt(`UPDATE planning SET day=?,start_min=?,end_min=?,title=?,kind=?,class_id=?,group_id=?,notes=? WHERE id=? AND ${free}`,...values,ident,day,end,start,ident)
-    : m.stmt(`INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,group_id,notes) SELECT ?,?,?,?,?,?,?,?,? WHERE ${free}`,ident,...values,day,end,start,"");
-  const after={day,start_min:start,end_min:end,title,kind,class_id:classId,group_id:groupId,notes};
+    ? m.stmt(`UPDATE planning SET day=?,start_min=?,end_min=?,title=?,kind=?,class_id=?,group_id=?,notes=?,students_allowed=? WHERE id=? AND ${free}`,...values,ident,day,end,start,ident)
+    : m.stmt(`INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,group_id,notes,students_allowed) SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${free}`,ident,...values,day,end,start,"");
+  const after={day,start_min:start,end_min:end,title,kind,class_id:classId,group_id:groupId,notes,students_allowed:students};
   const [result]=await m.batch([statement,audit(m,me,"planning",item?"Modification du créneau":"Création du créneau",title,before,after,true)]);
   if (!result.meta.changes) fail(409,"Un créneau occupe déjà tout ou partie de cette plage.");
   return { ok:true };
@@ -135,8 +140,8 @@ export async function duplicateWeek(m,start,me) {
   const end = shiftDay(start,7);
   const [count, copied] = await m.batch([
     m.stmt("SELECT count(*) AS total FROM planning WHERE day>=? AND day<?",start,end),
-    m.stmt(`INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,notes,group_id)
-      SELECT lower(hex(randomblob(16))),date(p.day,'+7 days'),p.start_min,p.end_min,p.title,p.kind,p.class_id,p.notes,p.group_id
+    m.stmt(`INSERT INTO planning (id,day,start_min,end_min,title,kind,class_id,notes,group_id,students_allowed)
+      SELECT lower(hex(randomblob(16))),date(p.day,'+7 days'),p.start_min,p.end_min,p.title,p.kind,p.class_id,p.notes,p.group_id,p.students_allowed
       FROM planning p WHERE p.day>=? AND p.day<?
       AND NOT EXISTS (SELECT 1 FROM planning q WHERE q.day=date(p.day,'+7 days')
         AND q.start_min<p.end_min AND q.end_min>p.start_min)`,start,end),

@@ -231,6 +231,6 @@ export async function studentFile(m,id,fail) {
 }
 
 export function publicPlanning(rows) {
-  return rows.map(({day,start_min,end_min,kind})=>({day,start_min,end_min,kind:kind==="fermeture"?"fermeture":"reservation",
-    title:kind==="fermeture"?"Fermé":"Réservé",class_name:null}));
+  return rows.map(({day,start_min,end_min,kind,students_allowed})=>({day,start_min,end_min,kind:kind==="fermeture"||students_allowed===0?"fermeture":"reservation",
+    title:kind==="fermeture"?"Fermé":students_allowed===0?"Réservé · fermé aux élèves":"Réservé",class_name:null}));
 }

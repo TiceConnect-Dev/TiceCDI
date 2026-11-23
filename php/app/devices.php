@@ -274,8 +274,10 @@ function kioskToday(Store $db, int $clock): array
     $useHours = ($db->one('SELECT use_hours FROM kiosk_settings WHERE id=1')['use_hours'] ?? 0) === 1;
     $rows = array_map(static function (array $row): array {
         $closed = $row['kind'] === 'fermeture';
-        return ['start_min' => (int) $row['start_min'], 'end_min' => (int) $row['end_min'], 'kind' => $closed ? 'fermeture' : 'reservation', 'title' => $closed ? 'Fermé' : 'Réservé'];
-    }, $db->all('SELECT start_min,end_min,kind FROM planning WHERE day=? ORDER BY start_min', $now['day']));
+        $refused = !$closed && (int) $row['students_allowed'] === 0;
+        return ['start_min' => (int) $row['start_min'], 'end_min' => (int) $row['end_min'], 'kind' => $closed || $refused ? 'fermeture' : 'reservation',
+            'title' => $closed ? 'Fermé' : ($refused ? 'Réservé · fermé aux élèves' : 'Réservé')];
+    }, $db->all('SELECT start_min,end_min,kind,students_allowed FROM planning WHERE day=? ORDER BY start_min', $now['day']));
     return ['day' => $now['day'], 'minute' => $now['minute'],
         'hours' => $useHours ? $db->all('SELECT start_min,end_min FROM opening_hours WHERE weekday=? ORDER BY start_min', $now['weekday']) : [],
         'rows' => $rows];

@@ -56,7 +56,7 @@ export async function kioskToday(m, clock) {
   const [settings, hours, rows] = await Promise.all([
     m.one("SELECT use_hours FROM kiosk_settings WHERE id=1"),
     m.list("SELECT start_min,end_min FROM opening_hours WHERE weekday=? ORDER BY start_min", now.weekday),
-    m.list("SELECT day,start_min,end_min,kind FROM planning WHERE day=? ORDER BY start_min", now.day),
+    m.list("SELECT day,start_min,end_min,kind,students_allowed FROM planning WHERE day=? ORDER BY start_min", now.day),
   ]);
   return { day:now.day, minute:now.minute, hours:settings?.use_hours === 1 ? hours : [],
     rows:publicPlanning(rows).map(({ start_min, end_min, kind, title }) => ({ start_min, end_min, kind, title })) };

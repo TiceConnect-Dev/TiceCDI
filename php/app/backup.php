@@ -26,7 +26,8 @@ function validBackupRow(string $table, array $row): bool
     return match ($table) {
         'students', 'school_groups' => in_array($row['active'], [0, 1], true),
         'planning' => validDay($row['day']) && $row['start_min'] >= 0 && $row['end_min'] <= 1440
-            && $row['start_min'] < $row['end_min'] && in_array($row['kind'], SCHEDULE_KINDS, true),
+            && $row['start_min'] < $row['end_min'] && in_array($row['kind'], SCHEDULE_KINDS, true)
+            && in_array($row['students_allowed'], [0, 1], true),
         'attendance' => in_array($row['roster_kind'], ['classe', 'groupe'], true)
             && $row['duration'] >= 5 && $row['duration'] <= 240,
         'attendance_members' => in_array($row['status'], ['present', 'retard', 'absent', 'excuse', 'attente', 'exclu'], true),
@@ -127,6 +128,14 @@ function backupResource(Store $db, array $me, string $path, string $method, int 
     $encoded = $data['backup'] ?? null;
     $backup = decryptBackup($encoded,$data['phrase'] ?? null);
     $privacy = checkedPrivacyState($backup['privacy'] ?? null);
+    // Sauvegardes antérieures à la v1.14 : l’accès des élèves aux créneaux est déduit du type (fermeture = refusé).
+    if (is_array($backup['tables']['planning'] ?? null)) {
+        foreach ($backup['tables']['planning'] as $index => $row) {
+            if (is_array($row) && !array_key_exists('students_allowed', $row)) {
+                $backup['tables']['planning'][$index]['students_allowed'] = ($row['kind'] ?? '') === 'fermeture' ? 0 : 1;
+            }
+        }
+    }
     $tables = $backup['tables'] ?? null;
     $date = $backup['created_at'] ?? null;
     if (!is_array($backup) || ($backup['format'] ?? null) !== 'cdi-backup' || ($backup['version'] ?? null) !== 1
