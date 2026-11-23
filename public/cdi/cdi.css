@@ -789,3 +789,4 @@ body.is-navigating::before{content:"";position:fixed;top:0;left:0;z-index:50;hei
 .borne-idle-reason{max-width:760px;color:#dfe2ff;font-weight:600;font-size:clamp(1.1rem,1.8vw,1.4rem)}
 .borne.is-closed .borne-idle{cursor:default}
 .borne.is-closed .borne-idle-hint{display:none}
+.borne.is-closed .borne-idle .borne-rules{display:none}

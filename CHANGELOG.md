@@ -2,7 +2,7 @@
 
 ## v1.13.2 · Borne fermée
 
-- CDI fermé : la borne reste sur l’écran de repos (horloge, « CDI fermé », motif et règles), sans annonce ni « Touche l’écran ». Un scan de sortie reste possible.
+- CDI fermé : la borne reste sur l’écran de repos (horloge, « CDI fermé » et motif), sans annonce, règles ni « Touche l’écran ». Un scan de sortie reste possible.
 - Annonces longues : l’icône reste collée au texte, la taille s’adapte et les points de défilement passent sous le texte.
 
 ## v1.13.1 · Annonces plus visibles, écran de repos stable
