@@ -1,5 +1,10 @@
 # Journal des versions
 
+## v1.13.1 · Annonces plus visibles, écran de repos stable
+
+- Annonces centrées, plus grandes, sur fond de couleur franche (texte blanc).
+- Plus de clignotement : la bulle d’annonce et l’écran de repos ne sont redessinés que lorsque leur contenu change.
+
 ## v1.13.0 · Affichage de la borne
 
 Nouveau bloc **Affichage de la borne** dans *Réglages et horaires* (droit « Réglages ») :

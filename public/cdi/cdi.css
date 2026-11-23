@@ -589,16 +589,19 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .borne-places[data-level=mid]{background:#fff4dc;color:#7a5200}
 .borne-places[data-level=high]{background:#ffe7d6;color:#9a3d0a}
 .borne-places[data-level=full]{background:#fde3e5;color:#8b1720}
-.borne-news{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;font-weight:700;font-size:clamp(1.05rem,1.5vw,1.25rem);background:#e8eeff;color:#1b2a8f;animation:borne-pop .25s ease-out}
-.borne-news .icon{width:28px;height:28px;flex:none}
-.borne-news p{flex:1}
-.borne-news[data-tone=succes]{background:#e3f4ea;color:#145c3a}
-.borne-news[data-tone=attention]{background:#fff4dc;color:#6b4a0c}
-.borne-news[data-tone=alerte]{background:#fde3e5;color:#8b1720}
-.borne-news[data-tone=evenement]{background:#f1e8ff;color:#5a2a9c}
-.borne-news-dots{display:flex;gap:6px}
-.borne-news-dots i{width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.25}
+.borne-news{position:relative;display:flex;align-items:center;justify-content:center;min-height:72px;padding:16px 64px;border-radius:16px;text-align:center;
+  font-weight:800;font-size:clamp(1.2rem,2.1vw,1.65rem);line-height:1.3;background:#1f3fbf;color:#fff;box-shadow:0 6px 18px #00009126}
+.borne-news p{display:inline-flex;align-items:center;justify-content:center;gap:12px;margin:0}
+.borne-news p .icon{width:30px;height:30px;flex:none}
+.borne-news.is-new{animation:borne-news-in .45s ease-out}
+.borne-news[data-tone=succes]{background:#157347}
+.borne-news[data-tone=attention]{background:#b45f00}
+.borne-news[data-tone=alerte]{background:#b3202b}
+.borne-news[data-tone=evenement]{background:#6a32c2}
+.borne-news-dots{position:absolute;right:20px;top:50%;transform:translateY(-50%);display:flex;gap:6px}
+.borne-news-dots i{width:9px;height:9px;border-radius:50%;background:#fff;opacity:.35}
 .borne-news-dots i.on{opacity:1}
+@keyframes borne-news-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .borne-day{display:grid;gap:8px;padding-top:16px;border-top:1px solid var(--line)}
 .borne-day-head{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font-size:clamp(.98rem,1.3vw,1.1rem)}
 .borne-day-head span{color:var(--muted);font-weight:600}
@@ -626,34 +629,32 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 @keyframes borne-fade{from{opacity:0}to{opacity:1}}
 @keyframes borne-pop-in{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
 @keyframes borne-timer{to{transform:scaleX(0)}}
-.borne-idle{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:linear-gradient(180deg,#000091 0%,#0b1150 100%);color:#fff;cursor:pointer;animation:borne-fade .4s ease-out}
+.borne-idle{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:linear-gradient(180deg,#000091 0%,#0b1150 100%);color:#fff;cursor:pointer;animation:borne-fade .4s ease-out both}
 .borne-idle-box{width:min(900px,100%);display:grid;justify-items:center;gap:18px;text-align:center}
 .borne-idle time{font-size:clamp(5rem,14vw,10rem);font-weight:800;line-height:.95;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
 .borne-idle-date{font-size:clamp(1.3rem,2.4vw,1.9rem);color:#c9cdf5;text-transform:capitalize}
 .borne-idle-state{padding:10px 22px;border-radius:999px;font-weight:700;font-size:clamp(1.1rem,1.8vw,1.4rem);background:#e3f4ea;color:#145c3a}
 .borne-idle-state[data-state=closed]{background:#fde3e5;color:#8b1720}
-.borne-idle .borne-news{width:100%;justify-content:center;text-align:left}
+.borne-idle .borne-news{width:100%;font-size:clamp(1.4rem,2.6vw,2rem);min-height:88px}
 .borne-idle .borne-rules{justify-content:center}
 .borne-idle .borne-rules li{background:#ffffff1f;color:#e6e8ff}
-.borne-idle-hint{display:flex;align-items:center;gap:10px;color:#c9cdf5;font-weight:600;font-size:clamp(1rem,1.5vw,1.2rem);animation:borne-breathe 2.4s ease-in-out infinite}
+.borne-idle-hint{display:flex;align-items:center;gap:10px;color:#c9cdf5;font-weight:600;font-size:clamp(1rem,1.5vw,1.2rem);animation:borne-breathe 3.6s ease-in-out infinite}
 .borne-idle-hint .icon{width:24px;height:24px}
-@keyframes borne-breathe{50%{opacity:.45}}
+@keyframes borne-breathe{50%{opacity:.6}}
 /* Thème sombre de la borne (réglé dans la gestion, indépendant du thème de l’espace personnel). */
 .borne.borne-dark{--white:#161a2d;--ink:#e6e8f5;--muted:#a6acc4;--line:#2d3252;--canvas:#0f1326;--pale:#232a55;--blue:#8f99ff;background:linear-gradient(180deg,#070a24 0%,#03040f 100%)}
 .borne.borne-dark .borne-card{box-shadow:0 24px 60px #000a}
 .borne.borne-dark .borne-scan input{border-color:#353c66}
-.borne.borne-dark .borne-status,.borne.borne-dark .borne-places,.borne.borne-dark .borne-feedback.success,.borne.borne-dark .borne-news[data-tone=succes]{background:#123d2a;color:#7ee0ad}
-.borne.borne-dark .borne-places[data-level=mid],.borne.borne-dark .borne-state[data-tone=warning],.borne.borne-dark .borne-news[data-tone=attention]{background:#3a2a0d;color:#ffd99a}
+.borne.borne-dark .borne-status,.borne.borne-dark .borne-places,.borne.borne-dark .borne-feedback.success{background:#123d2a;color:#7ee0ad}
+.borne.borne-dark .borne-places[data-level=mid],.borne.borne-dark .borne-state[data-tone=warning]{background:#3a2a0d;color:#ffd99a}
 .borne.borne-dark .borne-places[data-level=high]{background:#43230e;color:#ffbd8f}
-.borne.borne-dark .borne-status[data-state=closed],.borne.borne-dark .borne-places[data-level=full],.borne.borne-dark .borne-feedback.error,.borne.borne-dark .borne-news[data-tone=alerte]{background:#4a1820;color:#ff9ba2}
-.borne.borne-dark .borne-news{background:#1d2552;color:#c3cbff}
-.borne.borne-dark .borne-news[data-tone=evenement]{background:#2e1d52;color:#d7c2ff}
+.borne.borne-dark .borne-status[data-state=closed],.borne.borne-dark .borne-places[data-level=full],.borne.borne-dark .borne-feedback.error{background:#4a1820;color:#ff9ba2}
 .borne.borne-dark .borne-result-in em{color:#7ee0ad}
 .borne.borne-dark .borne-confirm-box{background:#161a2d}
 .borne.borne-dark .borne-confirm-box p{color:#c4c9ef}
 .borne.borne-dark .borne-idle{background:linear-gradient(180deg,#070a24 0%,#03040f 100%)}
 .borne.borne-dark .seg-ouvert{background:#2f6b4a}.borne.borne-dark .seg-reservation{background:#8a6421}.borne.borne-dark .seg-fermeture{background:#8a2f37}
-@media (prefers-reduced-motion:reduce){.borne-card.is-scanning,.borne-idle-hint,.borne-confirm-icon,.borne-news{animation:none}}
+@media (prefers-reduced-motion:reduce){.borne-card.is-scanning,.borne-idle-hint,.borne-confirm-icon,.borne-news.is-new{animation:none}}
 /* Réglages de l’affichage de la borne (gestion). */
 .display-panel{margin-top:16px}
 .announce-list{display:grid;gap:8px}
