@@ -194,13 +194,20 @@ async function exercise(host) {
   // Éviter de dépendre de l’heure réelle ou d’une fermeture programmée pendant l’essai.
   const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
   db.exec("DELETE FROM planning WHERE kind='fermeture'");
+  const found=await post("/borne/recherche",{q:"rectifie pr"},device);
+  assert.ok(found.rows[0].label.startsWith("Prénom rectifié"));
+  assert.equal(found.fuzzy,false);
+  const typo=await post("/borne/recherche",{q:"rectifei"},device);
+  assert.ok(typo.fuzzy && typo.rows.some(row=>row.label.startsWith("Prénom rectifié")));
   const arrival=await post("/borne/entree",{code},device);
   assert.equal(Object.hasOwn(arrival,"first_name"),false);
   const current=(await get("/gestion/presences",viewer)).rows[0];
   assert.equal(arrival.expires_at,presenceDeadline(current.starts_at));
   await patch("/gestion/presences/"+current.id,{minutes:60,expires_at:current.expires_at},viewer,403);
   assert.equal((await patch("/gestion/presences/"+current.id,{minutes:60,expires_at:current.expires_at},cdi)).expires_at,current.expires_at+3600000);
-  await post("/borne/sortie",{code},device);
+  // Douchette QWERTY sur poste AZERTY : chiffres en « & é " … », A en Q, préfixe AIM.
+  const azerty="]C0"+[...code].map(char=>({"1":"&","2":"é","3":"\"","4":"'","5":"(","6":"-","7":"è","8":"_","9":"ç","0":"à","A":"Q"})[char]??char).join("");
+  await post("/borne/sortie",{code:azerty},device);
   assert.equal((await get("/gestion/dossier/"+id)).visits[0].status,"sortie_enregistree");
 
   const earlier=shiftDay(today,-2), start=parisMidnight(earlier)+8*3600000;
@@ -217,7 +224,7 @@ async function exercise(host) {
   assert.deepEqual(detailed.sources,[{source:"individuel",visits:6}]);
   assert.equal(detailed.hours.reduce((total,row)=>total+row.visits,0),6); // aucune case masquée
   assert.equal(detailed.peak,6); assert.equal(detailed.busiest.visits,6); assert.equal(detailed.previous.visits,0);
-  assert.deepEqual(Object.keys(detailed).sort(),["average","busiest","classes","daily","days","durations","early_exits","frequency","from","group_visits","hidden","hours","observed_hours","peak","per_day","previous","retained_from","retained_visits","sources","students","to","visits"]);
+  assert.deepEqual(Object.keys(detailed).sort(),["average","busiest","classes","daily","days","durations","early_exits","frequency","from","group_visits","hidden","hours","observed_hours","peak","per_day","population","previous","retained_from","retained_visits","sources","students","to","visits"]);
   const old=await post("/gestion/sauvegarde/export",{phrase:secret},exporter);
   assert.equal(old.format,"cdi-encrypted");
   assert.equal(Object.hasOwn(old,"tables"),false);
@@ -232,8 +239,15 @@ async function exercise(host) {
     await post("/gestion/confidentialite/purge",{});
   }
   assert.equal((await get("/gestion/dossier/"+id)).visits.length,1);
-  assert.equal((await get(stats)).visits,6);
+  const archived=await get(stats);
+  assert.equal(archived.visits,6);
   assert.equal(db.prepare("SELECT visits FROM daily_statistics WHERE day=?").get(earlier).visits,6);
+  // Après la purge, les répartitions restent complètes (compteurs anonymes par jour).
+  assert.equal(archived.hours.reduce((total,row)=>total+row.visits,0),6);
+  assert.deepEqual(archived.classes.map(row=>[row.name,row.visits,row.students,row.partial]),[["5e A",6,6,true]]);
+  assert.equal(archived.durations.find(row=>row.label==="30 min à 1 h").count,6);
+  assert.deepEqual(archived.sources,[{source:"individuel",visits:6}]);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM archived_breakdown WHERE day=? AND kind='hour'").get(earlier).n,1);
   assert.ok((await get("/gestion/confidentialite")).last_success);
   const requested=await get("/gestion/dossier/"+id+"/export");
   assert.equal(requested.student.id,id);
@@ -511,8 +525,10 @@ async function devicesTest(host) {
   // Recherche par nom pour les élèves sans carte : prénom et initiale seulement, sélection liée au poste.
   await host.post("/gestion/import",{rows:[{first_name:"Zélie",last_name:"Bérangère-Test",class_name:"Classe Borne "+host.kind}]});
   const kiosk=(path,body)=>fetch(host.route("/api/borne/"+path),{method:"POST",headers:{"Content-Type":"application/json",Cookie:device},body:JSON.stringify(body)});
-  let search=await (await kiosk("recherche",{q:"ze"})).json();
+  let search=await (await kiosk("recherche",{q:"z"})).json();
   assert.equal(search.rows.length,0); assert.equal(search.short,true);
+  search=await (await kiosk("recherche",{q:"ze"})).json(); // deux lettres suffisent
+  assert.ok(search.rows.some(row=>row.label==="Zélie B."));
   search=await (await kiosk("recherche",{q:"zelie berang"})).json();
   assert.equal(search.rows.length,1);
   assert.equal(search.rows[0].label,"Zélie B."); assert.equal(search.rows[0].class_name,"Classe Borne "+host.kind);

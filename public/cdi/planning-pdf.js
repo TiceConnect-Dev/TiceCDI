@@ -252,95 +252,137 @@ export function weekPdf(data,days,kinds) {
   return makePdf(pages);
 }
 
-// Rapport de fréquentation (A4 paysage) : totaux, passages par jour, moyenne par jour de semaine et affluence jour × heure.
-export function statsPdf(data, weekdays, grid, bars) {
+// Rapport de fréquentation (A4 paysage) : synthèse, moments d’affluence, publics et modalités, détail de toutes les classes.
+// `views` vient de statsViews() (attendance.js) : moyennes par jour, heures, grille, niveaux, élèves touchés.
+export function statsPdf(data, views) {
+  const {weekdays,grid,bars,hours,levels,reach,busiestDay,busiestHour}=views;
   const fmt=new Intl.NumberFormat("fr-FR");
   const pct=(part,total)=>total?(Math.round(part/total*1000)/10).toLocaleString("fr-FR")+" %":"—";
   const one=value=>(Math.round(value*10)/10).toLocaleString("fr-FR");
-  const stamp=label(margin,height-18,"TiceCDI · rapport généré le "+new Date().toLocaleDateString("fr-FR"),{size:8,color:muted});
-  let page=header("Rapport de fréquentation du CDI",`Du ${date(data.from)} au ${date(data.to)} · toutes les valeurs sont détaillées`);
-  const cardW=(width-2*margin-36)/4;
-  const cards=[["Passages",fmt.format(data.visits)],["Élèves différents",fmt.format(data.students)],["Moyenne par jour d’ouverture",one(data.per_day)],
-    ["Durée moyenne de présence",Math.round(data.average)+" min"],["Heures cumulées au CDI",fmt.format(Math.round(data.observed_hours))],
-    ["Pic de présence simultanée",fmt.format(data.peak)],["Venues avec classe ou groupe",pct(data.group_visits,data.visits)],["Sorties avant l’échéance",pct(data.early_exits,data.visits)]];
-  cards.forEach(([title,value],i)=>{
-    const x=margin+(i%4)*(cardW+12), y=96+Math.floor(i/4)*56;
-    page+=box(x,y,cardW,48,"0.94 0.95 0.99")+label(x+10,y+20,value,{size:16,bold:true,color:blue})+label(x+10,y+38,title,{size:8.5,color:muted});
+  const fill="0.32 0.33 0.76", track="0.93 0.94 0.98", strong=blue;
+  const series=["0.165 0.471 0.839","0.922 0.408 0.204","0.106 0.686 0.478","0.929 0.631 0","0.91 0.482 0.643","0 0.514 0","0.384 0.314 0.839","0.89 0.286 0.282"];
+  const period=`Du ${date(data.from)} au ${date(data.to)}`;
+  let pageNumber=0;
+  const stamp=()=>label(margin,height-16,"TiceCDI · rapport généré le "+new Date().toLocaleDateString("fr-FR"),{size:8,color:muted})
+    +label(width-margin-40,height-16,"Page "+(++pageNumber),{size:8,color:muted});
+  const title=(x,y,text,sub)=>label(x,y,text,{size:12,bold:true})+(sub?label(x,y+13,sub,{size:8,color:muted}):"");
+  // Histogramme vertical avec graduations.
+  const columns=(x,y,w,h,rows,{every=0,highlight=true}={})=>{
+    if(!rows.length) return label(x,y+20,"Aucune donnée",{size:9,color:muted});
+    const max=Math.max(1,...rows.map(row=>row[1])), step=w/rows.length, bar=Math.max(1.2,Math.min(26,step*.68));
+    const skip=every||Math.max(1,Math.ceil(rows.length/14));
+    let out="";
+    [0,.5,1].forEach(f=>{const gy=y+h-h*f;out+=box(x,gy,w,.4,"0.88 0.89 0.94")+label(x-22,gy+3,one(max*f),{size:6.5,color:muted});});
+    rows.forEach(([name,value],i)=>{
+      const bh=value/max*(h-4), bx=x+i*step+(step-bar)/2;
+      if(bh>0) out+=box(bx,y+h-bh,bar,bh,highlight&&value===max?strong:fill);
+      if(rows.length<=24&&value) { const t=one(value); out+=label(x+i*step+step/2-t.length*2.1,y+h-bh-3,t,{size:6.5,color:muted}); }
+      if(i%skip===0) { const t=String(name); out+=label(x+i*step+step/2-Math.min(t.length,9)*2.1,y+h+11,t.slice(0,9),{size:7,color:muted}); }
+    });
+    return out;
+  };
+  // Barres horizontales avec libellé et valeur.
+  const ranks=(x,y,w,rows,{gap=17,labelW=96,format=v=>fmt.format(v),max}={})=>{
+    const top=max??Math.max(1,...rows.map(row=>row[1]));
+    return rows.map(([name,value],i)=>{
+      const ry=y+i*gap, bw=w-labelW-50;
+      return label(x,ry+9,String(name).slice(0,20),{size:8.5})+box(x+labelW,ry+1,bw,10,track)+box(x+labelW,ry+1,bw*Math.min(1,value/top),10,fill)
+        +label(x+labelW+bw+6,ry+9,format(value),{size:8.5,bold:true});
+    }).join("");
+  };
+  // Répartition en barre empilée + légende (équivalent imprimé de l’anneau).
+  const shares=(x,y,w,rows)=>{
+    const total=rows.reduce((t,row)=>t+row[1],0)||1;
+    let out="", at=x;
+    rows.forEach(([,value],i)=>{const bw=w*value/total;if(bw>0)out+=box(at,y,Math.max(0,bw-1),14,series[i%series.length]);at+=bw;});
+    rows.forEach(([name,value],i)=>{
+      const ly=y+30+i*15;
+      out+=box(x,ly-7,8,8,series[i%series.length])+label(x+13,ly,String(name).slice(0,28),{size:8.5})
+        +label(x+w-78,ly,fmt.format(value),{size:8.5,bold:true})+label(x+w-36,ly,pct(value,total),{size:8.5,color:muted});
+    });
+    return out;
+  };
+
+  // Page 1 : synthèse.
+  let page=header("Rapport de fréquentation du CDI",period+" · totaux de l’établissement");
+  const cardW=(width-2*margin-36)/4, floor=reach.partial?"*":"";
+  const cards=[["Passages",fmt.format(data.visits)],["Élèves différents",fmt.format(reach.students)+floor],
+    ["Taux de fréquentation",data.population?pct(reach.students,data.population)+floor:"—"],["Classes venues",fmt.format(data.classes.length)],
+    ["Moyenne par jour d’ouverture",one(data.per_day)],["Durée moyenne de présence",Math.round(data.average)+" min"],
+    ["Heures cumulées au CDI",fmt.format(Math.round(data.observed_hours))],["Pic de présence simultanée",fmt.format(data.peak)],
+    ["Jour le plus fréquenté",busiestDay?.name??"—"],["Heure de pointe",busiestHour?.[2]??"—"],
+    ["Venues avec classe ou groupe",pct(data.group_visits,data.visits)],["Sorties avant l’échéance",pct(data.early_exits,data.visits)]];
+  cards.forEach(([name,value],i)=>{
+    const x=margin+(i%4)*(cardW+12), y=94+Math.floor(i/4)*46;
+    page+=box(x,y,cardW,40,"0.94 0.95 0.99")+label(x+10,y+18,value,{size:14,bold:true,color:blue})+label(x+10,y+32,name,{size:8,color:muted});
   });
   const trend=data.previous?.visits?`Période précédente : ${fmt.format(data.previous.visits)} passages (${data.visits>=data.previous.visits?"+":""}${Math.round((data.visits-data.previous.visits)/data.previous.visits*100)} %)`:"Pas de passage sur la période précédente";
-  page+=label(margin,222,trend+(data.busiest?` · Journée la plus chargée : ${date(data.busiest.day)} (${fmt.format(data.busiest.visits)})`:""),{size:9.5,color:muted});
-  // Passages par jour (ou par semaine sur une longue période), en barres verticales.
-  const chartX=margin, chartY=246, chartW=width/2-margin-12, chartH=250;
-  page+=label(chartX,chartY,bars.title,{size:12,bold:true});
-  if(bars.rows.length) {
-    const max=Math.max(1,...bars.rows.map(([,v])=>v));
-    const step=chartW/bars.rows.length, bar=Math.max(1,Math.min(18,step*.7));
-    page+=box(chartX,chartY+12+chartH,chartW,.6,"0.75 0.77 0.85");
-    bars.rows.forEach(([,v],i)=>{
-      const h=v/max*(chartH-14);
-      page+=box(chartX+i*step+(step-bar)/2,chartY+12+chartH-h,bar,h,"0.32 0.33 0.76");
-      if(bars.rows.length<=31&&v) page+=label(chartX+i*step+step/2-String(v).length*2.3,chartY+8+chartH-h,String(v),{size:7,color:muted});
-    });
-    page+=label(chartX,chartY+chartH+28,bars.rows[0][0],{size:8,color:muted})
-      +label(chartX+chartW-60,chartY+chartH+28,bars.rows.at(-1)[0],{size:8,color:muted});
-  }
-  const sideX=width/2+12;
-  page+=label(sideX,chartY,"Moyenne par jour de la semaine",{size:12,bold:true});
-  const best=Math.max(1,...weekdays.map(row=>row.average));
-  weekdays.forEach((row,i)=>{
-    const y=chartY+18+i*26, w=(width-sideX-margin-130)*row.average/best;
-    page+=label(sideX,y+12,row.name,{size:10})+box(sideX+80,y+2,width-sideX-margin-130,13,"0.93 0.94 0.98")+box(sideX+80,y+2,w,13,"0.32 0.33 0.76")
-      +label(width-margin-44,y+12,one(row.average),{size:10,bold:true});
-  });
-  const pages=[page+stamp];
+  page+=label(margin,248,trend+(data.busiest?` · Journée la plus chargée : ${date(data.busiest.day)} (${fmt.format(data.busiest.visits)})`:"")
+    +(data.population?` · ${fmt.format(data.population)} élèves inscrits`:""),{size:9,color:muted});
+  const half=width/2-margin-14;
+  page+=title(margin,276,bars.title,"Passages archivés compris")+columns(margin+22,300,half-22,220,bars.rows);
+  page+=title(width/2+14,276,"Moyenne par jour de la semaine","Passages moyens par jour d’ouverture")
+    +columns(width/2+36,300,half-22,220,weekdays.map(row=>[row.name.slice(0,3)+".",Math.round(row.average*10)/10]),{every:1});
+  if(reach.partial) page+=label(margin,height-30,"* Minimum : les jours archivés ne conservent que le nombre d’élèves par jour, sans identité.",{size:7.5,color:muted});
+  const pages=[page+stamp()];
+
+  // Page 2 : moments de fréquentation.
   if(grid) {
-    let heat=header("Affluence par jour et par heure",`Du ${date(data.from)} au ${date(data.to)} · passages conservés, selon l’heure d’arrivée`);
-    const left=margin+80, cellW=Math.min(48,(width-left-margin)/grid.slots.length), cellH=34, top=112;
+    let heat=header("Moments de fréquentation",period+" · arrivées selon le jour et l’heure");
+    const left=margin+80, cellW=Math.min(46,(width-left-margin-60)/grid.slots.length), cellH=grid.days.length>5?26:30, top=108;
     const names=["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
-    grid.slots.forEach((hour,i)=>{heat+=label(left+i*cellW+cellW/2-8,top,hour+"h",{size:9,bold:true,color:muted});});
+    grid.slots.forEach((hour,i)=>{heat+=label(left+i*cellW+cellW/2-8,top,hour+"h",{size:8.5,bold:true,color:muted});});
+    heat+=label(left+grid.slots.length*cellW+12,top,"Total",{size:8.5,bold:true,color:muted});
     grid.days.forEach((weekday,row)=>{
-      const y=top+10+row*cellH;
+      const y=top+8+row*cellH;
       heat+=label(margin,y+cellH/2+4,names[weekday-1],{size:10,bold:true});
       grid.slots.forEach((hour,i)=>{
-        const value=grid.value(weekday,hour);
-        const ratio=value/grid.max;
+        const value=grid.value(weekday,hour), ratio=value/grid.max;
         const mix=[[.94,.29],[.95,.32],[1,.81]].map(([a,b])=>(a+(b-a)*ratio).toFixed(3)).join(" ");
         heat+=box(left+i*cellW+1,y+1,cellW-2,cellH-2,value?mix:"0.97 0.97 0.99");
         const text=value?String(value):"";
         if(text) heat+=label(left+i*cellW+cellW/2-text.length*2.6,y+cellH/2+4,text,{size:9,bold:ratio>.5,color:ratio>.55?"1 1 1":ink});
       });
+      const total=String(grid.total(weekday));
+      heat+=label(left+grid.slots.length*cellW+12,y+cellH/2+4,total,{size:9.5,bold:true});
     });
-    pages.push(heat+stamp);
+    const below=top+16+grid.days.length*cellH+24;
+    heat+=title(margin,below,"Arrivées par heure","Tous jours confondus")+columns(margin+22,below+22,width-2*margin-22,height-below-80,hours,{every:1});
+    pages.push(heat+stamp());
   }
-  // Détail : classes, durées, assiduité, type de venue.
-  let detail=header("Détail de la fréquentation",`Du ${date(data.from)} au ${date(data.to)} · passages conservés de la période`);
-  const cols=[["Classe",0],["Passages",130],["Élèves venus",200],["Effectif",280],["Taux de venue",345],["Passages / élève",430]];
-  let y=108;
-  detail+=label(margin,y,"Fréquentation par classe",{size:12,bold:true});
-  y+=18;
-  cols.forEach(([title,x])=>{detail+=label(margin+x,y,title,{size:8.5,bold:true,color:muted});});
-  const rows=data.classes.slice(0,Math.max(0,Math.floor((height-y-40)/15)));
-  rows.forEach((row,i)=>{
-    const ry=y+15+i*15;
-    if(i%2===0) detail+=box(margin-4,ry-10,536,15,"0.96 0.97 0.99");
-    [row.name,fmt.format(row.visits),fmt.format(row.students),row.size?fmt.format(row.size):"—",row.size?pct(row.students,row.size):"—",one(row.visits/row.students)]
-      .forEach((text,c)=>{detail+=label(margin+cols[c][1],ry,String(text).slice(0,22),{size:9,bold:c===0});});
-  });
-  if(data.classes.length>rows.length) detail+=label(margin,y+15+rows.length*15,`… ${data.classes.length-rows.length} autre(s) classe(s) dans l’export CSV`,{size:8,color:muted});
-  const blockX=margin+560, blockW=width-blockX-margin;
-  let by=108;
+
+  // Page 3 : publics et modalités de venue.
+  let who=header("Publics et modalités de venue",period);
+  const colW=(width-2*margin-40)/3;
+  who+=title(margin,108,"Passages par niveau")+shares(margin,124,colW,levels.map(row=>[row.name,row.visits]));
+  who+=title(margin+colW+20,108,"Taux de venue par niveau","Élèves venus / inscrits")
+    +ranks(margin+colW+20,132,colW,levels.filter(row=>row.size).slice(0,12).map(row=>[row.name,Math.round(row.students/row.size*1000)/10]),{labelW:70,format:v=>v.toLocaleString("fr-FR")+" %",max:100});
+  who+=title(margin+2*(colW+20),108,"Classes les plus présentes","Passages")
+    +ranks(margin+2*(colW+20),132,colW,data.classes.slice(0,12).map(row=>[row.name,row.visits]),{labelW:80});
   const sources={individuel:"Individuelle (borne)",classe:"Avec la classe",groupe:"Avec un groupe"};
-  for(const [title,list] of [["Durée de présence",data.durations.map(r=>[r.label,r.count])],["Assiduité (élèves)",data.frequency.map(r=>[r.label,r.count])],
-    ["Type de venue",data.sources.map(r=>[sources[r.source]??r.source,r.visits])]]) {
-    detail+=label(blockX,by,title,{size:12,bold:true});
-    const top=Math.max(1,...list.map(([,v])=>v));
-    list.forEach(([name,v],i)=>{
-      const ry=by+14+i*19;
-      detail+=label(blockX,ry+10,name,{size:8.5})+box(blockX+95,ry+1,blockW-135,11,"0.93 0.94 0.98")+box(blockX+95,ry+1,(blockW-135)*v/top,11,"0.32 0.33 0.76")
-        +label(width-margin-32,ry+10,fmt.format(v),{size:9,bold:true});
+  const lowY=356;
+  who+=title(margin,lowY,"Type de venue")+shares(margin,lowY+16,colW,data.sources.map(row=>[sources[row.source]??row.source,row.visits]));
+  who+=title(margin+colW+20,lowY,"Durée de présence","Passages")+ranks(margin+colW+20,lowY+24,colW,data.durations.map(row=>[row.label,row.count]),{labelW:80});
+  who+=title(margin+2*(colW+20),lowY,"Assiduité des élèves","Élèves (passages conservés)")+ranks(margin+2*(colW+20),lowY+24,colW,data.frequency.map(row=>[row.label,row.count]),{labelW:96});
+  pages.push(who+stamp());
+
+  // Pages suivantes : toutes les classes, sans troncature.
+  const cols=[["Classe",0],["Niveau",150],["Passages",235],["Part",305],["Élèves venus",365],["Effectif",450],["Taux de venue",515],["Passages / élève",600],["Avec classe ou groupe",690]];
+  const perPage=Math.floor((height-150)/15);
+  for(let start=0;start<Math.max(1,data.classes.length);start+=perPage) {
+    let detail=header("Détail par classe",`${period} · ${fmt.format(data.classes.length)} classe(s)`+(start?` · suite`:""));
+    let y=112;
+    cols.forEach(([name,x])=>{detail+=label(margin+x,y,name,{size:8.5,bold:true,color:muted});});
+    data.classes.slice(start,start+perPage).forEach((row,i)=>{
+      const ry=y+16+i*15, f=row.partial?"*":"";
+      if(i%2===0) detail+=box(margin-4,ry-10,width-2*margin+8,15,"0.96 0.97 0.99");
+      [row.name,views.levelOf(row.name),fmt.format(row.visits),pct(row.visits,data.visits),fmt.format(row.students)+f,row.size?fmt.format(row.size):"—",
+        row.size?pct(row.students,row.size)+f:"—",row.students?one(row.visits/row.students):"—",fmt.format(row.group_visits)]
+        .forEach((text,c)=>{detail+=label(margin+cols[c][1],ry,String(text).slice(0,24),{size:9,bold:c===0});});
     });
-    by+=26+list.length*19;
+    if(!data.classes.length) detail+=label(margin,140,"Aucune classe sur la période.",{size:10,color:muted});
+    if(data.classes.some(row=>row.partial)) detail+=label(margin,height-32,"* Minimum : les jours archivés ne conservent que le nombre d’élèves par jour ; le total réel peut être supérieur.",{size:7.5,color:muted});
+    pages.push(detail+stamp());
   }
-  pages.push(detail+stamp);
   return makePdf(pages);
 }

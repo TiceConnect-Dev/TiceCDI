@@ -3,9 +3,8 @@ import { renderBackup, renderGroups, renderJournal, renderSessions, renderYears,
 import { renderPlanning, renderScreen } from "./schedule.js";
 import { openingForm, renderStatistics } from "./attendance.js";
 import { siecleRows } from "./shared.js";
-import { routePath, urlFor, brand, api, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
+import { routePath, urlFor, brand, api, cardCode, loader, csvRows, day, e, fullName, icon, notice, renderBarcode, time, today, themeButton } from "./shared.js";
 import { renderConnection, renderDevices, renderSecurity, securityAlerts } from "./account.js";
-import { startScanner } from "./scan.js";
 
 const app = document.querySelector("#app");
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -42,7 +41,7 @@ function home() {
 }
 
 function kiosk() {
-  // Borne élèves : page plein écran, sans liens vers l’espace du personnel.
+  // Borne élèves : page plein écran, sobre, sans liens vers l’espace du personnel.
   app.innerHTML=`<div class="borne" id="main">
     <header class="borne-top">
       <div class="borne-brand">${brand(true)}<div><b>CDI</b><span>Centre de documentation et d’information</span></div></div>
@@ -50,32 +49,22 @@ function kiosk() {
     </header>
     <main class="borne-stage">
       <section class="borne-card" aria-labelledby="kiosk-title">
-        <div class="borne-hero">
-          <h1 id="kiosk-title">Bienvenue au CDI</h1>
-          <p id="borne-help">Scanne ta carte ou tape ton nom, puis <b>touche ton nom</b> : tu es enregistré·e automatiquement.</p>
+        <div class="borne-head">
+          <div><h1 id="kiosk-title">Entrée et sortie du CDI</h1>
+          <p id="borne-help">Scanne ta carte, ou tape ton nom puis sélectionne-le dans la liste.</p></div>
           <div class="borne-status" id="borne-status" hidden></div>
         </div>
-        <div class="borne-body">
-          <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
-          <form id="entry-form" autocomplete="off" hidden>
-            <label class="borne-label" for="entry-input" id="entry-label">Ton nom, ton prénom ou ta carte CDI</label>
-            <div class="borne-scan">${icon("search")}<input id="entry-input" type="text" maxlength="60" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Ex. Lina ou Martin" required></div>
-            <p class="borne-hint borne-card-hint">${icon("scan")} Avec la carte : un scan pour entrer, un autre pour sortir.</p>
-            <div id="name-results" class="borne-results" role="list" aria-live="polite"></div>
-            <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
-          </form>
-          <div id="entry-message" class="borne-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
-        </div>
+        <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
+        <form id="entry-form" autocomplete="off" hidden>
+          <label class="borne-label" for="entry-input" id="entry-label">Carte CDI, nom ou prénom</label>
+          <div class="borne-scan">${icon("search")}<input id="entry-input" type="text" maxlength="60" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Ex. Lina, Martin ou Lina 2nde 3" required></div>
+          <div id="name-results" class="borne-results" role="list" aria-live="polite"></div>
+          <label class="borne-toggle" id="second-hour"><input type="checkbox" id="two-hours"><span class="borne-switch" aria-hidden="true"></span><span>Rester jusqu’à la deuxième heure</span></label>
+        </form>
+        <div id="entry-message" class="borne-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
       </section>
     </main>
-    <footer class="borne-foot">
-      <a href="${urlFor("/notice")}" class="borne-notice">Protection des données</a>
-      <div class="borne-tools">
-        <button type="button" class="borne-tool" id="kiosk-camera" hidden>${icon("scan")}<span>Caméra</span></button>
-        <button type="button" class="borne-tool" id="kiosk-fullscreen">${icon("fullscreen")}<span>Plein écran</span></button>
-        <button type="button" class="borne-tool" id="kiosk-install" hidden>${icon("download")}<span>Installer</span></button>
-      </div>
-    </footer>
+    <footer class="borne-foot"><button type="button" class="borne-tool" id="kiosk-install" hidden>${icon("download")}<span>Installer la borne</span></button></footer>
   </div>`;
   const clockFormat=new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
   const dateFormat=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"long",timeZone:"Europe/Paris"});
@@ -85,7 +74,8 @@ function kiosk() {
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
   // Un seul champ : un code CDI (douchette ou saisie) ou un nom. Toucher son nom enregistre directement l’entrée.
   const results=$("#name-results");
-  const isCode=(value)=>/^cdi[0-9a-f]*$/i.test(value.trim());
+  // Début d’un code de carte (y compris tapé par une douchette en QWERTY sur un poste AZERTY).
+  const isCode=(value)=>/^\s*(\]c0)?cdi/i.test(value) || Boolean(cardCode(value));
   let nameSearchEnabled=true, searchTimer, searchVersion=0, idleTimer, rows=[];
   function clearSearch() { rows=[]; results.replaceChildren(); input.value=""; syncMode(); }
   function syncMode() {
@@ -98,8 +88,8 @@ function kiosk() {
   input.addEventListener("input",()=>{
     syncMode();
     // Carte scannée ou code complet : enregistrement immédiat (entrée, ou sortie si l’élève est déjà présent).
-    const full=input.value.trim().toUpperCase();
-    if(/^CDI[0-9A-F]{10}$/.test(full)) {
+    const full=cardCode(input.value);
+    if(full) {
       if(full===lastCard && Date.now()-lastCardAt<10_000) { input.value=""; syncMode(); show("Carte déjà prise en compte.","info"); return; }
       lastCard=full; lastCardAt=Date.now();
       checkIn("auto",{code:full,two_hours:two.checked});
@@ -110,7 +100,7 @@ function kiosk() {
     idleTimer=setTimeout(clearSearch,60_000);
     const query=input.value.trim();
     if(!nameSearchEnabled || !query || isCode(query)) return;
-    if(query.replace(/\s/g,"").length<3) { results.innerHTML=`<p class="borne-hint">Continue à taper… (3 lettres minimum)</p>`; return; }
+    if(query.replace(/\s/g,"").length<2) { results.innerHTML=`<p class="borne-hint">Continue à taper…</p>`; return; }
     searchTimer=setTimeout(async()=>{
       const version=++searchVersion;
       try {
@@ -118,13 +108,14 @@ function kiosk() {
         if(version!==searchVersion || input.value.trim()!==query) return;
         rows=result.rows;
         results.innerHTML=rows.length
-          ? rows.map(row=>`<div class="borne-result" role="listitem">
-              <button type="button" class="borne-result-in" data-ref="${e(row.ref)}" data-direction="entree"><strong>${e(row.label)}</strong><span>${e(row.class_name)}</span><em>${icon("login")} Toucher pour entrer</em></button>
+          ? (result.fuzzy?`<p class="borne-hint">Aucun nom exact. Est-ce l’un de ces élèves ?</p>`:"")
+            +rows.map(row=>`<div class="borne-result" role="listitem">
+              <button type="button" class="borne-result-in" data-ref="${e(row.ref)}" data-direction="entree"><span class="borne-avatar" aria-hidden="true">${e(row.label.charAt(0))}</span><span class="borne-who"><strong>${e(row.label)}</strong><small>${e(row.class_name)}</small></span><em>${icon("login")} Entrer</em></button>
               <button type="button" class="borne-result-out" data-ref="${e(row.ref)}" data-direction="sortie" aria-label="Sortie de ${e(row.label)}">${icon("logout")}<span>Sortir</span></button></div>`).join("")
-            +(result.more?`<p class="borne-hint">D’autres élèves correspondent : ajoute ton prénom ou ton nom.</p>`:"")
+            +(result.more?`<p class="borne-hint">D’autres élèves correspondent : ajoute ton nom ou ta classe.</p>`:"")
           : `<p class="borne-hint">Aucun élève trouvé. Vérifie l’orthographe ou adresse-toi au personnel.</p>`;
       } catch(error) { results.innerHTML=`<p class="borne-hint">${e(error.message)}</p>`; }
-    },220);
+    },180);
   });
   results.addEventListener("click",event=>{
     const choice=event.target.closest("[data-ref]");
@@ -149,9 +140,9 @@ function kiosk() {
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
       if(nameSearchEnabled!==Boolean(settings.name_search)) {
         nameSearchEnabled=Boolean(settings.name_search);
-        $("#entry-label").textContent=nameSearchEnabled?"Ton nom, ton prénom ou ta carte CDI":"Code de ta carte CDI";
-        input.placeholder=nameSearchEnabled?"Ex. Lina ou Martin":"CDI…";
-        $("#borne-help").innerHTML=nameSearchEnabled?"Scanne ta carte ou tape ton nom, puis <b>touche ton nom</b> : tu es enregistré·e automatiquement.":"Scanne ta carte CDI : tu es enregistré·e automatiquement.";
+        $("#entry-label").textContent=nameSearchEnabled?"Carte CDI, nom ou prénom":"Carte CDI";
+        input.placeholder=nameSearchEnabled?"Ex. Lina, Martin ou Lina 2nde 3":"Scanne ta carte";
+        $("#borne-help").textContent=nameSearchEnabled?"Scanne ta carte, ou tape ton nom puis sélectionne-le dans la liste.":"Scanne ta carte CDI pour entrer ou sortir.";
         syncMode();
       }
       if($("#second-hour").hidden) two.checked=false;
@@ -205,23 +196,13 @@ function kiosk() {
       return;
     }
     if(!value) return;
-    checkIn("auto",{code:value,two_hours:two.checked});
-  });
-  $("#kiosk-fullscreen").hidden=!document.fullscreenEnabled;
-  $("#kiosk-fullscreen").addEventListener("click",async event=>{
-    try {
-      if(document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
-    } catch {show("Utilise le mode plein écran du navigateur.");}
-  });
-  document.addEventListener("fullscreenchange",()=>{
-    const control=$("#kiosk-fullscreen");
-    if(control) control.innerHTML=icon("fullscreen")+`<span>${document.fullscreenElement?"Quitter le plein écran":"Plein écran"}</span>`;
+    const card=cardCode(value);
+    if(!card) { show("Code de carte illisible. Scanne à nouveau ta carte.","error"); input.value=""; syncMode(); return; }
+    checkIn("auto",{code:card,two_hours:two.checked});
   });
   refresh();
   setInterval(refresh,5000);
   kioskApp();
-  kioskCamera(show);
 }
 
 // Borne en application (PWA) : installation, écran toujours allumé, reconnexion et mise à jour automatiques.
@@ -232,37 +213,6 @@ addEventListener("beforeinstallprompt",event=>{
   const control=$("#kiosk-install");
   if(control) control.hidden=false;
 });
-function kioskCamera(show) {
-  const control=$("#kiosk-camera");
-  if(!navigator.mediaDevices?.getUserMedia || !isSecureContext) return;
-  control.hidden=false;
-  control.addEventListener("click",async()=>{
-    const overlay=document.createElement("div");
-    overlay.className="camera-overlay";
-    overlay.setAttribute("role","dialog");
-    overlay.setAttribute("aria-label","Lecture de la carte par la caméra");
-    overlay.innerHTML=`<div class="camera-box"><div class="camera-frame"><div class="camera-view"></div><i class="camera-guide" aria-hidden="true"></i></div>
-      <p>Présente le code-barres de ta carte face à la caméra, bien à plat.</p><button type="button" class="btn secondary">Annuler</button></div>`;
-    document.body.append(overlay);
-    let stop=()=>{};
-    const close=()=>{ stop(); overlay.remove(); $("#entry-input")?.focus({preventScroll:true}); };
-    $("button",overlay).addEventListener("click",close);
-    const timeout=setTimeout(close,60_000);
-    try {
-      stop=await startScanner($(".camera-view",overlay),code=>{
-        clearTimeout(timeout);
-        overlay.remove();
-        const input=$("#entry-input");
-        input.value=code;
-        input.dispatchEvent(new Event("input"));
-      });
-    } catch {
-      clearTimeout(timeout);
-      overlay.remove();
-      show("Caméra indisponible. Autorise l’accès à la caméra ou utilise la douchette.","error");
-    }
-  });
-}
 function kioskApp() {
   navigator.serviceWorker?.register(urlFor("/sw.js")).catch(()=>{});
   const install=$("#kiosk-install");
@@ -456,7 +406,7 @@ function adminShell(user, selected) {
     <aside class="sidebar"><p class="sidebar-title">Espace de gestion</p><nav aria-label="Administration du CDI">
       ${menu(visible)}
     </nav><p class="user-info">${icon("user")}${e(me.name)}</p></aside>
-    <main class="admin-main" id="main"><p class="loading">Chargement…</p></main>
+    <main class="admin-main" id="main" tabindex="-1">${loader()}</main>
     <dialog class="dialog" id="dialog" aria-labelledby="dialog-title"></dialog><div role="status" class="toast" id="toast" hidden></div>
     </div></div>`;
   $(".side-link[aria-current]")?.scrollIntoView({ block:"nearest", inline:"center" });
@@ -474,7 +424,49 @@ function adminShell(user, selected) {
     catch (error) { toast(error.message, "error"); }
   });
   $("#main").addEventListener("click", actionHandler);
-  render().then(() => { if (me.admin && !me.mfa_missing) securityAlerts($("#main")); }).catch(pageError);
+  // Navigation dans l’espace de gestion sans recharger la page : seul le contenu change.
+  $(".sidebar nav").addEventListener("click", (event) => {
+    const link = event.target.closest("a.side-link");
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const key = new URL(link.href).pathname.split("/").filter(Boolean).at(-1);
+    if (!visible.some((tab) => tab[0] === key)) return;
+    event.preventDefault();
+    go(key, true);
+  });
+  addEventListener("popstate", () => {
+    const key = routePath().split("/")[2];
+    if (visible.some((tab) => tab[0] === key) && key !== view) go(key, false);
+  });
+  showPage().then(() => { if (me.admin && !me.mfa_missing) securityAlerts($("#main")); });
+}
+let rendering = false, pendingRender = false;
+// Affiche la page demandée ; un écran de chargement n’apparaît que si l’attente se prolonge (voir .page-loader).
+async function showPage() {
+  if (rendering) { pendingRender = true; return; }
+  rendering = true;
+  document.body.classList.add("is-navigating");
+  try { await render(); }
+  catch (error) { pageError(error); }
+  finally {
+    rendering = false;
+    document.body.classList.remove("is-navigating");
+    if (pendingRender) { pendingRender = false; showPage(); }
+  }
+}
+function go(key, push) {
+  if (key === view && push) return;
+  view = key;
+  if (push) history.pushState(null, "", urlFor("/gestion/" + key));
+  for (const link of $$(".side-link")) {
+    const current = new URL(link.href).pathname.split("/").filter(Boolean).at(-1) === key;
+    if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+    if (current) link.closest(".side-group")?.classList.remove("collapsed");
+  }
+  $("#dialog")?.open && $("#dialog").close();
+  $("#main").innerHTML = loader();
+  $("#main").focus({ preventScroll:true });
+  scrollTo({ top:0 });
+  showPage();
 }
 
 // Sections repliables ; la section de la page ouverte est toujours dépliée, les autres gardent le dernier choix.

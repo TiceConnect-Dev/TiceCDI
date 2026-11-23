@@ -13,20 +13,20 @@
 | **Pointage** | Entrée ou sortie par carte CDI sur un poste activé par le personnel. Échéance calculée à l’heure pleine et prolongation par le CDI. |
 | **Planning** | Horaires, réservations, fermetures, PDF et version HTML en tableau. Affichage sans connexion configurable, limité aux horaires et aux statuts. |
 | **Gestion** | Annuaire et import minimal, fiches d’appel internes, présences, restrictions d’accès et dossiers individuels selon les habilitations. |
-| **Fréquentation** | Totaux et durées agrégés qui subsistent après la purge, sans détail par classe. |
+| **Fréquentation** | Tableau de bord avec graphiques (évolution, jours, heures, niveaux, classes, durées, types de venue) ; totaux et répartitions anonymes conservés après la purge. |
 | **Administration** | Réglages de l’établissement, notices, fiche de registre, comptes nominatifs, purge et sauvegardes chiffrées. |
 | **Sécurité** | Connexion par l’ENT (CAS ou OpenID Connect), double authentification (TOTP) facultative ou exigée, codes de secours, déconnexion après inactivité, sessions révocables, alertes d’échecs de connexion. |
-| **Confort** | Thème sombre, borne installable en plein écran avec scan par caméra, places libres sur l’écran public, imports Pronote et SIECLE, rapport PDF de fréquentation. |
+| **Confort** | Thème sombre, borne installable, compatible douchettes QWERTY/AZERTY, places libres sur l’écran public, imports Pronote et SIECLE, rapport PDF de fréquentation. |
 
 ## Installation
 
 | Édition | Télécharger | Guide |
 | --- | --- | --- |
-| PHP | [TiceCDI-PHP.zip](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-PHP.zip) | [PHP et XAMPP](docs/INSTALLATION-PHP.md) |
-| Docker et Portainer | [Stack Portainer](compose.portainer.yaml) · [Image à importer](https://github.com/Xeros59/TiceCDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) | [Docker et Portainer](docs/INSTALLATION-PORTAINER.md) |
+| PHP | [TiceCDI-PHP.zip](https://github.com/TiceConnect-Dev/TiceCDI/releases/latest/download/TiceCDI-PHP.zip) | [PHP et XAMPP](docs/INSTALLATION-PHP.md) |
+| Docker et Portainer | [Stack Portainer](compose.portainer.yaml) · [Image à importer](https://github.com/TiceConnect-Dev/TiceCDI/releases/latest/download/TiceCDI-Docker-amd64.tar.gz) | [Docker et Portainer](docs/INSTALLATION-PORTAINER.md) |
 | Docker depuis les sources | `docker compose up -d --build` après avoir copié `.env.example` en `.env` | [Variables et mise à jour](docs/INSTALLATION-PORTAINER.md) |
 
-L’image Linux amd64 utilise l’adresse historique `ghcr.io/xeros59/gestion-cdi`. Les nouveautés de chaque version sont listées dans le [journal des versions](CHANGELOG.md). Une arrivée à **8 h 30** expire à **9 h**. Avec un créneau supplémentaire, elle expire à **10 h**. Une échéance expirée libère la place et reste distincte d’une sortie constatée.
+L’image Linux amd64 est publiée sur `ghcr.io/ticeconnect-dev/ticecdi` (avant la v1.12 : `ghcr.io/xeros59/gestion-cdi`, qui ne reçoit plus de mises à jour). Les nouveautés de chaque version sont listées dans le [journal des versions](CHANGELOG.md). Une arrivée à **8 h 30** expire à **9 h**. Avec un créneau supplémentaire, elle expire à **10 h**. Une échéance expirée libère la place et reste distincte d’une sortie constatée.
 
 ## Avant le premier import
 

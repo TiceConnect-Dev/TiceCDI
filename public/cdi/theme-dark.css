@@ -76,23 +76,41 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] .heat-3{background:#2d2f53}
   html[data-theme="dark"] .heat-4{background:#2732ce}
   html[data-theme="dark"] .heat-5{background:#333cc1}
-  html[data-theme="dark"] .camera-overlay{background:#ced1e5cc}
-  html[data-theme="dark"] .camera-box{background:var(--white,#14151a)}
-  html[data-theme="dark"] .camera-view{background:#e8e9ed}
-  html[data-theme="dark"] .camera-guide{background:#d61f2a}
   html[data-theme="dark"] .right-level span{background:var(--white,#14151a)}
   html[data-theme="dark"] .right-level input:checked+span{background:var(--blue-fill)}
   html[data-theme="dark"] .right-level input:focus-visible+span{outline:3px solid #788eed}
   html[data-theme="dark"] .right-export span{background:var(--white,#14151a)}
   html[data-theme="dark"] .right-export input:checked+span{background:#1b3121;border:1px solid #84e1a2;color:#84e1a2}
   html[data-theme="dark"] .right-export input:focus-visible+span{outline:3px solid #788eed}
+  html[data-theme="dark"] .chart{--series-1:#7faee6;--series-2:#f19774;--series-3:#7aebc2;--series-4:#f4ca71;--series-5:#e87da5;--series-6:#71f471;--series-7:#9083e2;--series-8:#eb7b7a}
+  html[data-theme="dark"] .chart-grid{stroke:#1b1f32}
+  html[data-theme="dark"] .chart-base{stroke:#373c56}
+  html[data-theme="dark"] .chart-axis{fill:#777c94}
+  html[data-theme="dark"] .chart-bar{fill:#7f87e6}
+  html[data-theme="dark"] .chart-bar.is-max{fill:#7171f4}
+  html[data-theme="dark"] .chart-mark:hover .chart-bar,html[data-theme="dark"] .chart-mark:focus .chart-bar{fill:#8087e5}
+  html[data-theme="dark"] .chart-mark:focus .chart-hit{fill:#7171f410}
+  html[data-theme="dark"] .chart-line{stroke:#7171f4}
+  html[data-theme="dark"] .chart-area{fill:#7171f414}
+  html[data-theme="dark"] .chart-dot{fill:#7171f4;stroke:#14151a}
+  html[data-theme="dark"] .chart-tip{color:var(--white,#14151a)}
+  html[data-theme="dark"] .donut-caption{fill:#777c94}
+  html[data-theme="dark"] .rank-chart li:focus{outline:2px solid #788eed}
+  html[data-theme="dark"] .rank-chart progress{background:#171c2b;accent-color:#7faee6}
+  html[data-theme="dark"] .rank-chart progress::-webkit-progress-bar{background:#171c2b}
+  html[data-theme="dark"] .rank-chart progress::-webkit-progress-value{background:#2873cd}
+  html[data-theme="dark"] .rank-chart progress::-moz-progress-bar{background:#2873cd}
+  html[data-theme="dark"] .loader-ring{border:3px solid #1d2136}
+  html[data-theme="dark"] body.is-navigating::before{background:linear-gradient(90deg,transparent,var(--blue-fill),#e23842,transparent)}
+  html[data-theme="dark"] .boot-bar{background:#1c1f34}
+  html[data-theme="dark"] .boot-bar i{background:var(--blue-fill)}
   html[data-theme="dark"] body{background:var(--canvas)}
   html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}
   html[data-theme="dark"] .masthead .tice-wordmark{background:#fff;padding:5px 8px;border-radius:6px}
   html[data-theme="dark"] .tice-hero-logo{background:#fff;padding:14px 18px;border-radius:10px}
-  html[data-theme="dark"] .borne-hero{background:linear-gradient(150deg,#1b2050,#141836);color:#e6e8f5}
-  html[data-theme="dark"] .borne-hero p{color:#c4c9ef}
+  html[data-theme="dark"] .borne-card{box-shadow:0 18px 50px #0008}
+  html[data-theme="dark"] .borne-state{background:#1d2245}
   html[data-theme="dark"] .borne-scan input{border-color:#3a4170}
   html[data-theme="dark"] .borne-state[data-tone=warning]{background:#3a2a0d;color:#ffd99a}
   html[data-theme="dark"] .borne-feedback.success,html[data-theme="dark"] .borne-status{background:#123d2a;color:#7ee0ad}

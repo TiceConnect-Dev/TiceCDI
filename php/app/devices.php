@@ -86,20 +86,76 @@ function devicesResource(Store $db, string $path, string $method, array $me, int
     fail(404, 'Action introuvable.');
 }
 
-/** Recherche par nom sur la borne : au plus 6 résultats (prénom et initiale du nom), sélection valable 3 minutes. */
+/** Score d’un élève pour la recherche de la borne (plus petit = meilleur), ou null. Même règle que cdi/devices.mjs. */
+function matchScore(array $row, array $tokens, bool $fuzzy): ?int
+{
+    $names = explode(' ', $row['search_name']);
+    $group = preg_replace('/\s+/u', '', (string) ($row['class_key'] ?? '')) ?? '';
+    $score = 0;
+    foreach ($tokens as $token) {
+        $best = PHP_INT_MAX;
+        $length = mb_strlen($token, 'UTF-8');
+        foreach ($names as $name) {
+            if ($name === $token) {
+                $best = min($best, 0);
+            } elseif (str_starts_with($name, $token)) {
+                $best = min($best, 1);
+            } elseif ($length >= 3 && str_contains($name, $token)) {
+                $best = min($best, 4);
+            } elseif ($fuzzy && $length >= 3) {
+                $allowed = $length <= 4 ? 1 : 2;
+                $gap = min(levenshtein($token, $name), levenshtein($token, mb_substr($name, 0, $length, 'UTF-8')) + 1);
+                if ($gap <= $allowed) {
+                    $best = min($best, 6 + $gap);
+                }
+            }
+        }
+        if ($group !== '' && ($group === $token || (mb_strlen($token, 'UTF-8') >= 2 && str_starts_with($group, $token)))) {
+            $best = min($best, 2);
+        }
+        if ($best === PHP_INT_MAX) {
+            return null;
+        }
+        $score += $best;
+    }
+    return $score;
+}
+
+function rankMatches(array $rows, array $tokens, bool $fuzzy): array
+{
+    $scored = [];
+    foreach ($rows as $row) {
+        $score = matchScore($row, $tokens, $fuzzy);
+        if ($score !== null) {
+            $scored[] = [$score, $row];
+        }
+    }
+    usort($scored, static fn ($a, $b) => [$a[0], $a[1]['last_name'], $a[1]['first_name']] <=> [$b[0], $b[1]['last_name'], $b[1]['first_name']]);
+    return array_column($scored, 1);
+}
+
+/** Recherche par nom sur la borne : 2 lettres, mots dans n’importe quel ordre, classe possible, fautes tolérées en dernier recours. */
 function kioskSearch(Store $db, string $device, mixed $query, int $clock): array
 {
     if (!deviceSettings($db)['name_search']) {
         fail(403, 'La recherche par nom est désactivée sur cette borne.');
     }
     throttle($db, 'search:' . $device, 40);
-    $tokens = array_slice(array_values(array_filter(explode(' ', words($query)), static fn ($token) => mb_strlen($token, 'UTF-8') >= 2)), 0, 4);
-    if (mb_strlen(implode('', $tokens), 'UTF-8') < 3) {
+    $tokens = array_slice(array_values(array_filter(explode(' ', words($query)), static fn ($token) => $token !== '')), 0, 4);
+    if (mb_strlen(implode('', $tokens), 'UTF-8') < 2) {
         return ['rows' => [], 'short' => true];
     }
-    $found = $db->all('SELECT s.id,s.first_name,s.last_name,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id WHERE s.active=1 '
-        . str_repeat('AND s.search_name LIKE ? ', count($tokens)) . 'ORDER BY s.last_name,s.first_name LIMIT 7',
-        ...array_map(static fn ($token) => '%' . $token . '%', $tokens));
+    $columns = 'SELECT s.id,s.first_name,s.last_name,s.search_name,c.name AS class_name,c.normalized AS class_key FROM students s JOIN classes c ON c.id=s.class_id WHERE s.active=1 ';
+    $params = [];
+    foreach ($tokens as $token) {
+        array_push($params, '%' . $token . '%', $token . '%');
+    }
+    $found = rankMatches($db->all($columns . str_repeat("AND (s.search_name LIKE ? OR replace(c.normalized,' ','') LIKE ?) ", count($tokens)) . 'LIMIT 200', ...$params), $tokens, false);
+    $fuzzy = false;
+    if (!$found && array_filter($tokens, static fn ($token) => mb_strlen($token, 'UTF-8') >= 3)) {
+        $found = rankMatches($db->all($columns . 'LIMIT 5000'), $tokens, true);
+        $fuzzy = (bool) $found;
+    }
     $db->run('DELETE FROM kiosk_refs WHERE expires_at<=?', $clock);
     $rows = [];
     foreach (array_slice($found, 0, 6) as $row) {
@@ -108,5 +164,23 @@ function kioskSearch(Store $db, string $device, mixed $query, int $clock): array
         $initial = mb_strtoupper(mb_substr(trim($row['last_name']), 0, 1, 'UTF-8'), 'UTF-8');
         $rows[] = ['ref' => $ref, 'label' => $row['first_name'] . ' ' . $initial . '.', 'class_name' => $row['class_name']];
     }
-    return ['rows' => $rows, 'more' => count($found) > 6];
+    return ['rows' => $rows, 'more' => count($found) > 6, 'fuzzy' => $fuzzy];
 }
+
+/** Code de carte reçu d’une douchette (clavier QWERTY sur poste AZERTY, préfixe AIM, casse) : même règle que la borne. */
+function cardCode(mixed $value): string
+{
+    if (!is_string($value)) {
+        return '';
+    }
+    $text = strtr(preg_replace('/\s+/u', '', mb_substr($value, 0, 80, 'UTF-8')) ?? '', ['&' => '1', 'é' => '2', 'É' => '2', '"' => '3', "'" => '4', '(' => '5',
+        '-' => '6', '§' => '6', 'è' => '7', 'È' => '7', '_' => '8', '!' => '8', 'ç' => '9', 'Ç' => '9', 'à' => '0', 'À' => '0']);
+    $text = strtoupper($text);
+    $at = strpos($text, 'CDI');
+    if ($at === false) {
+        return '';
+    }
+    $body = str_replace('Q', 'A', substr($text, $at + 3, 10));
+    return preg_match('/^[0-9A-F]{10}$/D', $body) ? 'CDI' . $body : '';
+}
+
