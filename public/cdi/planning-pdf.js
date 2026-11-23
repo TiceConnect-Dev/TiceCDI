@@ -329,10 +329,13 @@ export function statsPdf(data, views) {
   // Page 2 : moments de fréquentation.
   if(grid) {
     let heat=header("Moments de fréquentation",period+" · arrivées selon le jour et l’heure");
-    const left=margin+80, cellW=Math.min(46,(width-left-margin-60)/grid.slots.length), cellH=grid.days.length>5?26:30, top=108;
+    const extra=grid.hasUnknown?70:0;
+    const left=margin+80, cellW=Math.min(46,(width-left-margin-60-extra)/Math.max(1,grid.slots.length)), cellH=grid.days.length>5?26:30, top=108;
+    const tail=left+grid.slots.length*cellW+12;
     const names=["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
     grid.slots.forEach((hour,i)=>{heat+=label(left+i*cellW+cellW/2-8,top,hour+"h",{size:8.5,bold:true,color:muted});});
-    heat+=label(left+grid.slots.length*cellW+12,top,"Total",{size:8.5,bold:true,color:muted});
+    if(grid.hasUnknown) heat+=label(tail,top,"Sans heure",{size:8.5,bold:true,color:muted});
+    heat+=label(tail+extra,top,"Total",{size:8.5,bold:true,color:muted});
     grid.days.forEach((weekday,row)=>{
       const y=top+8+row*cellH;
       heat+=label(margin,y+cellH/2+4,names[weekday-1],{size:10,bold:true});
@@ -343,10 +346,11 @@ export function statsPdf(data, views) {
         const text=value?String(value):"";
         if(text) heat+=label(left+i*cellW+cellW/2-text.length*2.6,y+cellH/2+4,text,{size:9,bold:ratio>.5,color:ratio>.55?"1 1 1":ink});
       });
-      const total=String(grid.total(weekday));
-      heat+=label(left+grid.slots.length*cellW+12,y+cellH/2+4,total,{size:9.5,bold:true});
+      if(grid.hasUnknown && grid.unknown(weekday)) heat+=label(tail+14,y+cellH/2+4,String(grid.unknown(weekday)),{size:9.5,color:muted});
+      heat+=label(tail+extra,y+cellH/2+4,String(grid.total(weekday)),{size:9.5,bold:true});
     });
-    const below=top+16+grid.days.length*cellH+24;
+    if(grid.hasUnknown) heat+=label(margin,top+20+grid.days.length*cellH,"« Sans heure » : jours purgés avant la mise à jour v1.12, dont seul le total a été gardé.",{size:7.5,color:muted});
+    const below=top+16+grid.days.length*cellH+(grid.hasUnknown?40:24);
     heat+=title(margin,below,"Arrivées par heure","Tous jours confondus")+columns(margin+22,below+22,width-2*margin-22,height-below-80,hours,{every:1});
     pages.push(heat+stamp());
   }
@@ -381,6 +385,7 @@ export function statsPdf(data, views) {
         .forEach((text,c)=>{detail+=label(margin+cols[c][1],ry,String(text).slice(0,24),{size:9,bold:c===0});});
     });
     if(!data.classes.length) detail+=label(margin,140,"Aucune classe sur la période.",{size:10,color:muted});
+    if(views.unattributed) detail+=label(margin,height-42,`${fmt.format(views.unattributed)} passage(s) de jours purgés avant la v1.12 ne sont comptés que dans les totaux (classe non conservée).`,{size:7.5,color:muted});
     if(data.classes.some(row=>row.partial)) detail+=label(margin,height-32,"* Minimum : les jours archivés ne conservent que le nombre d’élèves par jour ; le total réel peut être supérieur.",{size:7.5,color:muted});
     pages.push(detail+stamp());
   }

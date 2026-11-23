@@ -1,5 +1,10 @@
 # Journal des versions
 
+## v1.12.1 · Jours purgés avant la v1.12
+
+- L’affluence jour × heure affiche aussi les jours purgés avant la v1.12 (par exemple un dimanche) avec leur total dans une colonne « Sans heure » : plus aucun jour ne disparaît du tableau ni du PDF.
+- Le détail par classe indique le nombre de passages dont la classe n’a pas été conservée.
+
 ## v1.12.0 · Statistiques complètes et graphiques, borne repensée
 
 **Statistiques**
