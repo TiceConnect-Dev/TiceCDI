@@ -72,19 +72,30 @@ export const statisticsSql={
     FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY day
     ) SELECT day,sum(visits) AS visits,sum(group_visits) AS group_visits,sum(early_exits) AS early_exits,sum(observed_ms) AS observed_ms,max(distinct_floor) AS students
       FROM all_days GROUP BY day ORDER BY day`,
-  hours:`SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits
-    FROM local_visits WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour`,
+  hours:`SELECT weekday,hour,sum(visits) AS visits FROM (
+      SELECT CAST(strftime('%w',day) AS INTEGER) AS weekday,hour,count(*) AS visits FROM visit_facts WHERE day BETWEEN ? AND ? GROUP BY day,hour
+      UNION ALL SELECT CAST(strftime('%w',day) AS INTEGER),CAST(label AS INTEGER),visits FROM archived_breakdown WHERE kind='hour' AND day BETWEEN ? AND ?
+    ) GROUP BY weekday,hour ORDER BY weekday,hour`,
   retained:`SELECT count(*) AS visits,count(DISTINCT student_id) AS students,min(day) AS first_day FROM dated_visits WHERE day BETWEEN ? AND ?`,
-  sources:`SELECT source,count(*) AS visits FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY source ORDER BY visits DESC`,
-  classes:`SELECT coalesce(v.class_name,c.name) AS name,count(*) AS visits,count(DISTINCT v.student_id) AS students,
-      sum(v.source IN ('classe','groupe')) AS group_visits,
-      (SELECT count(*) FROM students s2 JOIN classes c2 ON c2.id=s2.class_id WHERE c2.name=coalesce(v.class_name,c.name) AND s2.active=1) AS size
-    FROM dated_visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
-    WHERE v.day BETWEEN ? AND ? GROUP BY coalesce(v.class_name,c.name) ORDER BY visits DESC,name`,
-  durations:`SELECT CASE WHEN d<15 THEN 0 WHEN d<30 THEN 1 WHEN d<60 THEN 2 WHEN d<120 THEN 3 ELSE 4 END AS bucket,count(*) AS visits
-    FROM (SELECT max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)/60000.0 AS d FROM dated_visits WHERE day BETWEEN ? AND ?) GROUP BY bucket`,
+  sources:`SELECT source,sum(visits) AS visits FROM (
+      SELECT source,count(*) AS visits FROM visit_facts WHERE day BETWEEN ? AND ? GROUP BY source
+      UNION ALL SELECT label,visits FROM archived_breakdown WHERE kind='source' AND day BETWEEN ? AND ?
+    ) GROUP BY source ORDER BY visits DESC`,
+  classes:`SELECT name,sum(visits) AS visits,max(students) AS students,sum(partial) AS partial,sum(group_visits) AS group_visits,
+      (SELECT count(*) FROM students s2 JOIN classes c2 ON c2.id=s2.class_id WHERE c2.name=x.name AND s2.active=1) AS size
+    FROM (
+      SELECT class_label AS name,count(*) AS visits,count(DISTINCT student_id) AS students,0 AS partial,sum(source IN ('classe','groupe')) AS group_visits
+        FROM visit_facts WHERE day BETWEEN ? AND ? AND class_label IS NOT NULL GROUP BY class_label
+      UNION ALL SELECT label,sum(visits),max(students),count(*),sum(group_visits) FROM archived_breakdown WHERE kind='class' AND day BETWEEN ? AND ? GROUP BY label
+    ) x GROUP BY name ORDER BY visits DESC,name`,
+  durations:`SELECT bucket,sum(visits) AS visits FROM (
+      SELECT CASE WHEN d<15 THEN 0 WHEN d<30 THEN 1 WHEN d<60 THEN 2 WHEN d<120 THEN 3 ELSE 4 END AS bucket,count(*) AS visits
+        FROM (SELECT max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)/60000.0 AS d FROM visit_facts WHERE day BETWEEN ? AND ?) GROUP BY bucket
+      UNION ALL SELECT CAST(label AS INTEGER),visits FROM archived_breakdown WHERE kind='duration' AND day BETWEEN ? AND ?
+    ) GROUP BY bucket`,
   frequency:`SELECT CASE WHEN n=1 THEN 0 WHEN n<=3 THEN 1 WHEN n<=9 THEN 2 ELSE 3 END AS bucket,count(*) AS students
     FROM (SELECT count(*) AS n FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY student_id) GROUP BY bucket`,
+  population:`SELECT count(*) AS total FROM students WHERE active=1`,
   previous:`SELECT (SELECT coalesce(sum(visits),0) FROM daily_statistics WHERE day BETWEEN ? AND ?)+(SELECT count(*) FROM dated_visits WHERE day BETWEEN ? AND ?) AS visits`,
   peak:`WITH overlap AS (
       SELECT max(starts_at,?) AS a,min(coalesce(ended_at,expires_at),expires_at,?) AS b
@@ -96,7 +107,7 @@ export const statisticsSql={
 export const durationBuckets=["Moins de 15 min","15 à 30 min","30 min à 1 h","1 à 2 h","Plus de 2 h"];
 export const frequencyBuckets=["1 passage","2 à 3 passages","4 à 9 passages","10 passages et plus"];
 // Mise en forme commune (les mêmes règles sont reprises côté PHP).
-export function shapeStatistics({from,to,daily,hours,retained,sources,classes,durations,frequency,previous,peak}) {
+export function shapeStatistics({from,to,daily,hours,retained,sources,classes,durations,frequency,previous,peak,population}) {
   const visits=daily.reduce((total,row)=>total+row.visits,0);
   const observed=daily.reduce((total,row)=>total+row.observed_ms,0);
   const group=daily.reduce((total,row)=>total+row.group_visits,0);
@@ -110,7 +121,8 @@ export function shapeStatistics({from,to,daily,hours,retained,sources,classes,du
     daily:daily.map(({day,visits,group_visits,early_exits,students})=>({day,visits,group_visits,early_exits,students})),
     hours:hours.map(row=>({weekday:row.weekday===0?7:row.weekday,hour:row.hour,visits:row.visits})),
     sources:sources.map(row=>({source:row.source,visits:row.visits})),
-    classes:classes.map(row=>({name:row.name,visits:row.visits,students:row.students,group_visits:row.group_visits,size:row.size})),
+    classes:classes.map(row=>({name:row.name,visits:row.visits,students:row.students,group_visits:row.group_visits,size:row.size,partial:row.partial>0})),
+    population,
     durations:bucket(durations,durationBuckets,"visits"),frequency:bucket(frequency,frequencyBuckets,"students")};
 }
 export async function privateStatistics(m,from,to,clock,fail) {
@@ -119,13 +131,13 @@ export async function privateStatistics(m,from,to,clock,fail) {
   const length=Math.round((Date.parse(to)-Date.parse(from))/dayMs)+1;
   const prevTo=shiftDay(from,-1), prevFrom=shiftDay(from,-length);
   const start=parisMidnight(from), end=Math.min(parisMidnight(shiftDay(to,1)),clock);
-  const [daily,hours,retained,sources,classes,durations,frequency,previous,peak]=await Promise.all([
-    m.list(statisticsSql.daily,from,to,clock,from,to), m.list(statisticsSql.hours,from,to), m.one(statisticsSql.retained,from,to),
-    m.list(statisticsSql.sources,from,to), m.list(statisticsSql.classes,from,to), m.list(statisticsSql.durations,clock,from,to),
+  const [daily,hours,retained,sources,classes,durations,frequency,previous,peak,population]=await Promise.all([
+    m.list(statisticsSql.daily,from,to,clock,from,to), m.list(statisticsSql.hours,from,to,from,to), m.one(statisticsSql.retained,from,to),
+    m.list(statisticsSql.sources,from,to,from,to), m.list(statisticsSql.classes,from,to,from,to), m.list(statisticsSql.durations,clock,from,to,from,to),
     m.list(statisticsSql.frequency,from,to), m.one(statisticsSql.previous,prevFrom,prevTo,prevFrom,prevTo),
-    m.one(statisticsSql.peak,start,end,end,start,start)]);
+    m.one(statisticsSql.peak,start,end,end,start,start), m.one(statisticsSql.population)]);
   return shapeStatistics({from,to,daily,hours,retained,sources,classes,durations,frequency,
-    previous:{from:prevFrom,to:prevTo,visits:previous.visits},peak:peak.peak});
+    previous:{from:prevFrom,to:prevTo,visits:previous.visits},peak:peak.peak,population:population.total});
 }
 
 export function scrubLegacy(tables) {
@@ -166,23 +178,29 @@ export async function decryptBackup(envelope,secret,fail) {
 }
 
 export function checkedPrivacyState(raw,fail) {
-  if (raw===undefined) return {archived_before:0,daily:[],erased:[]};
+  if (raw===undefined) return {archived_before:0,daily:[],breakdown:[],erased:[]};
   const number = (value) => Number.isSafeInteger(value) && value>=0;
   if (!raw || !number(raw.archived_before) || raw.archived_before>Date.now()+86_400_000
     || !Array.isArray(raw.daily) || !Array.isArray(raw.erased)
     || raw.erased.some(id=>typeof id!=="string" || !/^[a-f0-9-]{16,64}$/.test(id))
     || raw.daily.some(row=>!row || !validDay(row.day) || !["visits","group_visits","early_exits","observed_ms","distinct_floor"].every(key=>number(row[key]))))
     fail(400,"L’état des purges de la sauvegarde est invalide.");
-  return raw;
+  // Répartitions archivées (v1.12) : absentes des sauvegardes plus anciennes.
+  const breakdown=raw.breakdown ?? [];
+  if (!Array.isArray(breakdown) || breakdown.some(row=>!row || !validDay(row.day) || !["hour","duration","source","class"].includes(row.kind)
+    || typeof row.label!=="string" || !row.label || row.label.length>120 || !["visits","group_visits","students"].every(key=>number(row[key]))))
+    fail(400,"L’état des purges de la sauvegarde est invalide.");
+  return {...raw,breakdown};
 }
 
 export async function recoveryState(m) {
-  const [state,daily,erased]=await m.batch([
+  const [state,daily,breakdown,erased]=await m.batch([
     m.stmt("SELECT archived_before FROM privacy_state WHERE id=1"),
     m.stmt("SELECT * FROM daily_statistics ORDER BY day"),
+    m.stmt("SELECT * FROM archived_breakdown ORDER BY day,kind,label"),
     m.stmt("SELECT student_id FROM erased_students ORDER BY student_id"),
   ]);
-  return {archived_before:state.results[0].archived_before,daily:daily.results,erased:erased.results.map(row=>row.student_id)};
+  return {archived_before:state.results[0].archived_before,daily:daily.results,breakdown:breakdown.results,erased:erased.results.map(row=>row.student_id)};
 }
 
 export function recoveryStatements(m, privacy, clock, settings) {
@@ -190,6 +208,8 @@ export function recoveryStatements(m, privacy, clock, settings) {
     m.stmt("INSERT OR IGNORE INTO erased_students SELECT value FROM json_each(?)",JSON.stringify(privacy.erased)),
     m.stmt(`INSERT OR IGNORE INTO daily_statistics(day,visits,group_visits,early_exits,observed_ms,distinct_floor)
       SELECT value->>'day',value->>'visits',value->>'group_visits',value->>'early_exits',value->>'observed_ms',value->>'distinct_floor' FROM json_each(?)`,JSON.stringify(privacy.daily)),
+    m.stmt(`INSERT OR IGNORE INTO archived_breakdown(day,kind,label,visits,group_visits,students)
+      SELECT value->>'day',value->>'kind',value->>'label',value->>'visits',value->>'group_visits',value->>'students' FROM json_each(?)`,JSON.stringify(privacy.breakdown ?? [])),
     m.stmt("UPDATE privacy_state SET archived_before=max(archived_before,?) WHERE id=1",privacy.archived_before),
     taskStatement(m,settings,clock,"restore"),
   ];

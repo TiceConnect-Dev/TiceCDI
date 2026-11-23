@@ -67,10 +67,62 @@ export async function devicesApi(ctx) {
 }
 
 // Recherche par nom sur la borne : au plus 6 résultats, prénom et initiale du nom seulement, sélection valable 3 minutes.
+// Recherche par nom sur la borne : 2 lettres suffisent, l’ordre des mots est libre (« martin lina », « lin mar »),
+// un mot peut viser la classe (« lina 2nde3 ») et une faute de frappe est tolérée quand rien ne correspond exactement.
 export function searchTokens(query, words) {
-  const tokens = words(query).split(" ").filter((token) => token.length >= 2).slice(0, 4);
-  return tokens.join("").length >= 3 ? tokens : [];
+  const tokens = words(query).split(" ").filter(Boolean).slice(0, 4);
+  return tokens.join("").length >= 2 ? tokens : [];
+}
+function distance(a, b) {
+  const row = Array.from({ length:b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const kept = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = kept;
+    }
+  }
+  return row[b.length];
+}
+// Score d’un élève (plus petit = meilleur) ; null s’il ne correspond pas. rows : {search_name, class_key}.
+export function matchScore(row, tokens, fuzzy = false) {
+  const names = row.search_name.split(" "), group = (row.class_key ?? "").replace(/\s+/g, "");
+  let score = 0;
+  for (const token of tokens) {
+    let best = Infinity;
+    for (const name of names) {
+      if (name === token) best = Math.min(best, 0);
+      else if (name.startsWith(token)) best = Math.min(best, 1);
+      else if (token.length >= 3 && name.includes(token)) best = Math.min(best, 4);
+      else if (fuzzy && token.length >= 3) {
+        const allowed = token.length <= 4 ? 1 : 2;
+        const gap = Math.min(distance(token, name), distance(token, name.slice(0, token.length)) + 1);
+        if (gap <= allowed) best = Math.min(best, 6 + gap);
+      }
+    }
+    if (group && (group === token || (token.length >= 2 && group.startsWith(token)))) best = Math.min(best, 2);
+    if (best === Infinity) return null;
+    score += best;
+  }
+  return score;
+}
+export function rankMatches(rows, tokens, fuzzy = false) {
+  return rows.map((row) => ({ row, score:matchScore(row, tokens, fuzzy) })).filter((item) => item.score !== null)
+    .sort((a, b) => a.score - b.score || a.row.last_name.localeCompare(b.row.last_name, "fr") || a.row.first_name.localeCompare(b.row.first_name, "fr"))
+    .map((item) => item.row);
 }
 export function kioskLabel(row) {
   return `${row.first_name} ${row.last_name.trim().charAt(0).toLocaleUpperCase("fr")}.`;
+}
+
+// Code de carte reçu d’une douchette (clavier QWERTY sur poste AZERTY, préfixe AIM, casse) : même règle que la borne.
+const azertyDigits={"&":"1","é":"2","É":"2","\"":"3","'":"4","(":"5","-":"6","§":"6","è":"7","È":"7","_":"8","!":"8","ç":"9","Ç":"9","à":"0","À":"0"};
+export function cardCode(value) {
+  const text=[...String(value??"").normalize("NFC").replace(/\s+/g,"")].map(char=>azertyDigits[char]??char).join("").toUpperCase();
+  const at=text.indexOf("CDI");
+  if (at<0) return "";
+  const body=text.slice(at+3,at+13).replace(/Q/g,"A");
+  return /^[0-9A-F]{10}$/.test(body) ? "CDI"+body : "";
 }

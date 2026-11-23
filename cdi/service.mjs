@@ -3,7 +3,7 @@ import { changePrivacy, checkedPrivacyState, decryptBackup, encryptBackup, maint
 import { audit, auditRows } from "./audit.mjs";
 import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
 import { connectionApi, connectionSettings, ssoApi, ssoPublic } from "./connection.mjs";
-import { deviceExpiry, deviceSettings, devicesApi, kioskLabel, searchTokens, touchDevice } from "./devices.mjs";
+import { cardCode, deviceExpiry, deviceSettings, devicesApi, kioskLabel, rankMatches, searchTokens, touchDevice } from "./devices.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
@@ -412,12 +412,16 @@ async function dispatch(request, env, options) {
       await throttle(m,"search:"+key,40);
       const tokens=searchTokens((await payload(request)).q,words);
       if (!tokens.length) return json({rows:[],short:true});
-      const found=await m.list(`SELECT s.id,s.first_name,s.last_name,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
-        WHERE s.active=1 ${tokens.map(()=>"AND s.search_name LIKE ?").join(" ")} ORDER BY s.last_name,s.first_name LIMIT 7`,...tokens.map(token=>"%"+token+"%"));
+      const columns="SELECT s.id,s.first_name,s.last_name,s.search_name,c.name AS class_name,c.normalized AS class_key FROM students s JOIN classes c ON c.id=s.class_id WHERE s.active=1";
+      let found=rankMatches(await m.list(`${columns} ${tokens.map(()=>"AND (s.search_name LIKE ? OR replace(c.normalized,' ','') LIKE ?)").join(" ")} LIMIT 200`,
+        ...tokens.flatMap(token=>["%"+token+"%",token+"%"])),tokens);
+      // Aucune correspondance exacte : tolérance d’une ou deux fautes de frappe.
+      let fuzzy=false;
+      if (!found.length && tokens.some(token=>token.length>=3)) { found=rankMatches(await m.list(columns+" LIMIT 5000"),tokens,true); fuzzy=found.length>0; }
       const rows=found.slice(0,6).map(row=>({ref:random(16),label:kioskLabel(row),class_name:row.class_name,student_id:row.id}));
       await m.batch([m.stmt("DELETE FROM kiosk_refs WHERE expires_at<=?",clock),
         ...rows.map(row=>m.stmt("INSERT INTO kiosk_refs VALUES (?,?,?,?)",row.ref,row.student_id,key,clock+180_000))]);
-      return json({rows:rows.map(({student_id,...row})=>row),more:found.length>6});
+      return json({rows:rows.map(({student_id,...row})=>row),more:found.length>6,fuzzy});
     }
     if (method!=="POST" || !["/api/borne/entree","/api/borne/sortie","/api/borne/auto"].includes(path)) fail(404,"Action introuvable.");
     await throttle(m,"checkin:"+key,90);
@@ -428,8 +432,8 @@ async function dispatch(request, env, options) {
       if (!picked) fail(410,"La sélection a expiré. Recherche à nouveau ton nom.");
       data.code=picked.code;
     }
-    const code=clean(data.code).toUpperCase();
-    if (!/^CDI[0-9A-F]{10}$/.test(code)) fail(400,"Scanne ou saisis le code de ta carte CDI.");
+    const code=cardCode(typeof data.code==="string" ? data.code.slice(0,80) : "");
+    if (!code) fail(400,"Scanne ou saisis le code de ta carte CDI.");
     const person=await m.one(`SELECT s.id,c.name AS class_name FROM students s JOIN classes c ON c.id=s.class_id
       WHERE s.active=1 AND s.code=?`,code);
     // Carte scannée : sortie si l’élève est déjà présent, entrée sinon.

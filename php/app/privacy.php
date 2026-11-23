@@ -100,19 +100,30 @@ function privateStatistics(Store $db, string $from, string $to, int $clock): arr
         FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY day
         ) SELECT day,sum(visits) AS visits,sum(group_visits) AS group_visits,sum(early_exits) AS early_exits,sum(observed_ms) AS observed_ms,max(distinct_floor) AS students
           FROM all_days GROUP BY day ORDER BY day", $from, $to, $clock, $from, $to);
-    $hours = $db->all("SELECT CAST(strftime('%w',local,'unixepoch') AS INTEGER) AS weekday,CAST(strftime('%H',local,'unixepoch') AS INTEGER) AS hour,count(*) AS visits
-        FROM local_visits WHERE date(local,'unixepoch') BETWEEN ? AND ? GROUP BY weekday,hour ORDER BY weekday,hour", $from, $to);
+    $hours = $db->all("SELECT weekday,hour,sum(visits) AS visits FROM (
+          SELECT CAST(strftime('%w',day) AS INTEGER) AS weekday,hour,count(*) AS visits FROM visit_facts WHERE day BETWEEN ? AND ? GROUP BY day,hour
+          UNION ALL SELECT CAST(strftime('%w',day) AS INTEGER),CAST(label AS INTEGER),visits FROM archived_breakdown WHERE kind='hour' AND day BETWEEN ? AND ?
+        ) GROUP BY weekday,hour ORDER BY weekday,hour", $from, $to, $from, $to);
     $retained = $db->one('SELECT count(*) AS visits,count(DISTINCT student_id) AS students,min(day) AS first_day FROM dated_visits WHERE day BETWEEN ? AND ?', $from, $to);
-    $sources = $db->all('SELECT source,count(*) AS visits FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY source ORDER BY visits DESC', $from, $to);
-    $classes = $db->all("SELECT coalesce(v.class_name,c.name) AS name,count(*) AS visits,count(DISTINCT v.student_id) AS students,
-          sum(v.source IN ('classe','groupe')) AS group_visits,
-          (SELECT count(*) FROM students s2 JOIN classes c2 ON c2.id=s2.class_id WHERE c2.name=coalesce(v.class_name,c.name) AND s2.active=1) AS size
-        FROM dated_visits v JOIN students s ON s.id=v.student_id JOIN classes c ON c.id=s.class_id
-        WHERE v.day BETWEEN ? AND ? GROUP BY coalesce(v.class_name,c.name) ORDER BY visits DESC,name", $from, $to);
-    $durations = $db->all('SELECT CASE WHEN d<15 THEN 0 WHEN d<30 THEN 1 WHEN d<60 THEN 2 WHEN d<120 THEN 3 ELSE 4 END AS bucket,count(*) AS visits
-        FROM (SELECT max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)/60000.0 AS d FROM dated_visits WHERE day BETWEEN ? AND ?) GROUP BY bucket', $clock, $from, $to);
+    $sources = $db->all("SELECT source,sum(visits) AS visits FROM (
+          SELECT source,count(*) AS visits FROM visit_facts WHERE day BETWEEN ? AND ? GROUP BY source
+          UNION ALL SELECT label,visits FROM archived_breakdown WHERE kind='source' AND day BETWEEN ? AND ?
+        ) GROUP BY source ORDER BY visits DESC", $from, $to, $from, $to);
+    $classes = $db->all("SELECT name,sum(visits) AS visits,max(students) AS students,sum(partial) AS partial,sum(group_visits) AS group_visits,
+          (SELECT count(*) FROM students s2 JOIN classes c2 ON c2.id=s2.class_id WHERE c2.name=x.name AND s2.active=1) AS size
+        FROM (
+          SELECT class_label AS name,count(*) AS visits,count(DISTINCT student_id) AS students,0 AS partial,sum(source IN ('classe','groupe')) AS group_visits
+            FROM visit_facts WHERE day BETWEEN ? AND ? AND class_label IS NOT NULL GROUP BY class_label
+          UNION ALL SELECT label,sum(visits),max(students),count(*),sum(group_visits) FROM archived_breakdown WHERE kind='class' AND day BETWEEN ? AND ? GROUP BY label
+        ) x GROUP BY name ORDER BY visits DESC,name", $from, $to, $from, $to);
+    $durations = $db->all("SELECT bucket,sum(visits) AS visits FROM (
+          SELECT CASE WHEN d<15 THEN 0 WHEN d<30 THEN 1 WHEN d<60 THEN 2 WHEN d<120 THEN 3 ELSE 4 END AS bucket,count(*) AS visits
+            FROM (SELECT max(0,min(coalesce(ended_at,expires_at),expires_at,?)-starts_at)/60000.0 AS d FROM visit_facts WHERE day BETWEEN ? AND ?) GROUP BY bucket
+          UNION ALL SELECT CAST(label AS INTEGER),visits FROM archived_breakdown WHERE kind='duration' AND day BETWEEN ? AND ?
+        ) GROUP BY bucket", $clock, $from, $to, $from, $to);
     $frequency = $db->all('SELECT CASE WHEN n=1 THEN 0 WHEN n<=3 THEN 1 WHEN n<=9 THEN 2 ELSE 3 END AS bucket,count(*) AS students
         FROM (SELECT count(*) AS n FROM dated_visits WHERE day BETWEEN ? AND ? GROUP BY student_id) GROUP BY bucket', $from, $to);
+    $population = (int) $db->one('SELECT count(*) AS total FROM students WHERE active=1')['total'];
     $previous = $db->one('SELECT (SELECT coalesce(sum(visits),0) FROM daily_statistics WHERE day BETWEEN ? AND ?)+(SELECT count(*) FROM dated_visits WHERE day BETWEEN ? AND ?) AS visits',
         $prevFrom, $prevTo, $prevFrom, $prevTo);
     $peak = $db->one('WITH overlap AS (
@@ -158,7 +169,8 @@ function privateStatistics(Store $db, string $from, string $to, int $clock): arr
             'visits' => (int) $row['visits']], $hours),
         'sources' => array_map(static fn ($row) => ['source' => $row['source'], 'visits' => (int) $row['visits']], $sources),
         'classes' => array_map(static fn ($row) => ['name' => $row['name'], 'visits' => (int) $row['visits'], 'students' => (int) $row['students'],
-            'group_visits' => (int) $row['group_visits'], 'size' => (int) $row['size']], $classes),
+            'group_visits' => (int) $row['group_visits'], 'size' => (int) $row['size'], 'partial' => (int) $row['partial'] > 0], $classes),
+        'population' => $population,
         'durations' => $bucket($durations, ['Moins de 15 min', '15 à 30 min', '30 min à 1 h', '1 à 2 h', 'Plus de 2 h'], 'visits'),
         'frequency' => $bucket($frequency, ['1 passage', '2 à 3 passages', '4 à 9 passages', '10 passages et plus'], 'students'),
     ];
@@ -183,7 +195,7 @@ function studentFile(Store $db, string $id): array
 function checkedPrivacyState(mixed $raw): array
 {
     if ($raw === null) {
-        return ['archived_before' => 0, 'daily' => [], 'erased' => []];
+        return ['archived_before' => 0, 'daily' => [], 'breakdown' => [], 'erased' => []];
     }
     if (!is_array($raw) || !is_int($raw['archived_before'] ?? null) || $raw['archived_before'] < 0
         || $raw['archived_before'] > clockMs()+DAY_MS || !is_array($raw['daily'] ?? null) || !is_array($raw['erased'] ?? null)) {
@@ -204,6 +216,22 @@ function checkedPrivacyState(mixed $raw): array
             }
         }
     }
+    // Répartitions archivées (v1.12) : absentes des sauvegardes plus anciennes.
+    $raw['breakdown'] = $raw['breakdown'] ?? [];
+    if (!is_array($raw['breakdown'])) {
+        fail(400, 'L’état des purges de la sauvegarde est invalide.');
+    }
+    foreach ($raw['breakdown'] as $row) {
+        if (!is_array($row) || !validDay($row['day'] ?? null) || !in_array($row['kind'] ?? null, ['hour','duration','source','class'], true)
+            || !is_string($row['label'] ?? null) || $row['label'] === '' || mb_strlen($row['label'], 'UTF-8') > 120) {
+            fail(400, 'L’état des purges de la sauvegarde est invalide.');
+        }
+        foreach (['visits','group_visits','students'] as $key) {
+            if (!is_int($row[$key] ?? null) || $row[$key] < 0) {
+                fail(400, 'L’état des purges de la sauvegarde est invalide.');
+            }
+        }
+    }
     return $raw;
 }
 
@@ -211,6 +239,7 @@ function recoveryState(Store $db): array
 {
     return ['archived_before' => $db->one('SELECT archived_before FROM privacy_state WHERE id=1')['archived_before'],
         'daily' => $db->all('SELECT * FROM daily_statistics ORDER BY day'),
+        'breakdown' => $db->all('SELECT * FROM archived_breakdown ORDER BY day,kind,label'),
         'erased' => array_column($db->all('SELECT student_id FROM erased_students ORDER BY student_id'),'student_id')];
 }
 
@@ -220,6 +249,9 @@ function applyRecovery(Store $db, array $privacy, int $clock): void
     $db->run("INSERT OR IGNORE INTO daily_statistics(day,visits,group_visits,early_exits,observed_ms,distinct_floor)
         SELECT value->>'day',value->>'visits',value->>'group_visits',value->>'early_exits',value->>'observed_ms',value->>'distinct_floor' FROM json_each(?)",
         jsonData($privacy['daily']));
+    $db->run("INSERT OR IGNORE INTO archived_breakdown(day,kind,label,visits,group_visits,students)
+        SELECT value->>'day',value->>'kind',value->>'label',value->>'visits',value->>'group_visits',value->>'students' FROM json_each(?)",
+        jsonData($privacy['breakdown'] ?? []));
     $db->run('UPDATE privacy_state SET archived_before=max(archived_before,?) WHERE id=1', $privacy['archived_before']);
     task($db, privacySettings($db), $clock, 'restore');
 }

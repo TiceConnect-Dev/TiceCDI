@@ -13,10 +13,10 @@
 | **Pointage** | Entrée ou sortie par carte CDI sur un poste activé par le personnel. Échéance calculée à l’heure pleine et prolongation par le CDI. |
 | **Planning** | Horaires, réservations, fermetures, PDF et version HTML en tableau. Affichage sans connexion configurable, limité aux horaires et aux statuts. |
 | **Gestion** | Annuaire et import minimal, fiches d’appel internes, présences, restrictions d’accès et dossiers individuels selon les habilitations. |
-| **Fréquentation** | Totaux et durées agrégés qui subsistent après la purge, sans détail par classe. |
+| **Fréquentation** | Tableau de bord avec graphiques (évolution, jours, heures, niveaux, classes, durées, types de venue) ; totaux et répartitions anonymes conservés après la purge. |
 | **Administration** | Réglages de l’établissement, notices, fiche de registre, comptes nominatifs, purge et sauvegardes chiffrées. |
 | **Sécurité** | Connexion par l’ENT (CAS ou OpenID Connect), double authentification (TOTP) facultative ou exigée, codes de secours, déconnexion après inactivité, sessions révocables, alertes d’échecs de connexion. |
-| **Confort** | Thème sombre, borne installable en plein écran avec scan par caméra, places libres sur l’écran public, imports Pronote et SIECLE, rapport PDF de fréquentation. |
+| **Confort** | Thème sombre, borne installable, compatible douchettes QWERTY/AZERTY, places libres sur l’écran public, imports Pronote et SIECLE, rapport PDF de fréquentation. |
 
 ## Installation
 

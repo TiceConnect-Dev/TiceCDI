@@ -162,6 +162,7 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         }
         $data['code'] = $picked['code'];
     }
+    $data['code'] = cardCode($data['code'] ?? null);
     return $db->atomic(static function () use ($db, $path, $data): array {
         $now = clockMs();
         // Carte scannée : sortie si l’élève est déjà présent, entrée sinon.

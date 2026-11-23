@@ -32,7 +32,7 @@ function renderPage(string $path): void
 </head>
 <body>
   <a class="skip" href="#main">Aller au contenu</a>
-  <div id="app"><p class="loading" role="status">Chargement du CDI…</p></div>
+  <div id="app"><div class="boot" role="status"><img src="$assets/ticecdi-icon.webp" alt=""><div class="boot-bar"><i></i></div><span>Chargement de TiceCDI…</span></div></div>
 </body>
 </html>
 HTML;

@@ -1,5 +1,26 @@
 # Journal des versions
 
+## v1.12.0 · Statistiques complètes et graphiques, borne repensée
+
+**Statistiques**
+
+- **Correctif** : l’affluence jour × heure et le détail (classes, durées, types de venue) ne gardaient que les passages non purgés — avec la purge en fin de journée, seul le jour courant apparaissait (par exemple le lundi sans le dimanche). La purge archive désormais ces répartitions en compteurs anonymes par jour (migration `0010_archived_breakdown.sql`). Les jours purgés avant la mise à jour restent dans les totaux seulement.
+- Tableau de bord avec graphiques et infobulles : évolution (jour, semaine, mois), moyenne par jour de la semaine, arrivées par heure, affluence avec totaux, passages et taux de venue par niveau, classes les plus présentes, assiduité, type de venue, durée de présence.
+- Nouveaux indicateurs : taux de fréquentation (élèves venus / inscrits), classes venues, jour le plus fréquenté, heure de pointe.
+- Rapport PDF refait : synthèse, moments de fréquentation, publics et modalités, puis **toutes les classes** sur autant de pages que nécessaire (plus de troncature). CSV enrichi (mois, jours de la semaine, niveaux, heures).
+- Les sauvegardes et la reprise incluent les répartitions archivées.
+
+**Borne**
+
+- Douchettes : lecture fiable même en QWERTY sur un poste AZERTY, avec préfixe `]C0` ou majuscules verrouillées (Node et PHP).
+- Cartes imprimées deux par ligne avec des barres plus larges.
+- Recherche par nom : dès 2 lettres, résultats classés par pertinence, mots dans n’importe quel ordre, classe possible (« lina 2nde3 »), suggestions en cas de faute de frappe.
+- Interface plus sobre et plus compacte. Retrait de la caméra, du bouton plein écran et du lien « Protection des données » (déjà sur l’ENT).
+
+**Interface**
+
+- Navigation sans rechargement dans l’espace de gestion, barre de progression et écran de chargement affichés seulement si l’attente dépasse 300 ms.
+
 ## v1.11.0 · Statistiques détaillées, borne épurée
 
 **Statistiques**

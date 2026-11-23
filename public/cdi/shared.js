@@ -205,6 +205,18 @@ export function siecleRows(xml) {
   return rows;
 }
 
+// Code d’une carte CDI tel qu’il arrive d’une douchette. Une douchette réglée en clavier QWERTY sur un poste AZERTY
+// tape « & é " ' ( - è _ ç à » au lieu des chiffres et « Q » au lieu de « A » ; le verrouillage majuscule inverse la casse ;
+// certaines ajoutent un préfixe (identifiant AIM « ]C0 ») ou des espaces. Retourne « CDI » + 10 caractères hexadécimaux, ou null.
+const azertyDigits = { "&":"1", "é":"2", "É":"2", "\"":"3", "'":"4", "(":"5", "-":"6", "§":"6", "è":"7", "È":"7", "_":"8", "!":"8", "ç":"9", "Ç":"9", "à":"0", "À":"0" };
+export function cardCode(value) {
+  const text = [...String(value ?? "").normalize("NFC").replace(/\s+/g, "")].map((char) => azertyDigits[char] ?? char).join("").toUpperCase();
+  const at = text.indexOf("CDI");
+  if (at < 0) return null;
+  const body = text.slice(at + 3, at + 13).replace(/Q/g, "A");
+  return /^[0-9A-F]{10}$/.test(body) ? "CDI" + body : null;
+}
+
 const codePatterns = "212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112".split(" ");
 export function renderBarcode(value) {
   const values = [...value].map((char) => char.charCodeAt(0) - 32);
@@ -220,3 +232,7 @@ export function renderBarcode(value) {
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${x + 10} 39" preserveAspectRatio="none" fill="#000" shape-rendering="crispEdges" aria-hidden="true">${bars}</svg>`;
 }
+
+// Écran de chargement : invisible pendant les 300 premières millisecondes (rien ne clignote si la page arrive vite).
+export const loader = (text = "Chargement…") =>
+  `<div class="page-loader" role="status" aria-live="polite"><span class="loader-ring" aria-hidden="true"></span><span>${text}</span></div>`;

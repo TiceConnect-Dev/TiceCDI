@@ -71,12 +71,13 @@ export async function exportBackup(m, clock, fail) {
     ...tables.map(({name,columnList})=>m.stmt(`SELECT ${columnList} FROM ${name}`)),
     m.stmt("SELECT archived_before FROM privacy_state WHERE id=1"),
     m.stmt("SELECT * FROM daily_statistics ORDER BY day"),
+    m.stmt("SELECT * FROM archived_breakdown ORDER BY day,kind,label"),
     m.stmt("SELECT student_id FROM erased_students ORDER BY student_id"),
   ]);
   const backup = {
     format:FORMAT, version:VERSION, created_at:new Date(clock).toISOString(),
     tables:Object.fromEntries(tables.map(({name},index)=>[name,data[index].results])),
-    privacy:{archived_before:data.at(-3).results[0].archived_before,daily:data.at(-2).results,erased:data.at(-1).results.map(r=>r.student_id)},
+    privacy:{archived_before:data.at(-4).results[0].archived_before,daily:data.at(-3).results,breakdown:data.at(-2).results,erased:data.at(-1).results.map(r=>r.student_id)},
   };
   const serialized = JSON.stringify(backup);
   if (encoder.encode(serialized).byteLength > maxBackupBytes) fail(413, "Les données dépassent la taille maximale d’une sauvegarde depuis l’administration.");
