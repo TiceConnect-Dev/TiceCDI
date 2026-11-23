@@ -107,6 +107,7 @@ html[data-theme="dark"]{color-scheme:dark;--blue:#8f99ff;--ink:#e6e8f5;--muted:#
   html[data-theme="dark"] body.is-navigating::before{background:linear-gradient(90deg,transparent,var(--blue-fill),#e23842,transparent)}
   html[data-theme="dark"] .boot-bar{background:#1c1f34}
   html[data-theme="dark"] .boot-bar i{background:var(--blue-fill)}
+  html[data-theme="dark"] .cal-refused{color:#e97c84}
   html[data-theme="dark"] body{background:var(--canvas)}
   html[data-theme="dark"] .notice.warning{background:#3a2a0d;border-color:#7a5a1c;color:#ffd99a}
   html[data-theme="dark"] img.tice-brand-icon,html[data-theme="dark"] .tice-wordmark img{filter:none}
