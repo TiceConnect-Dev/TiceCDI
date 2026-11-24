@@ -59,6 +59,13 @@ function kiosk() {
         </div>
         <div class="borne-news" id="borne-news" role="status" aria-live="polite" hidden></div>
         <div id="kiosk-state" class="borne-state" role="status"><p>Vérification de l’activation du poste…</p></div>
+        <form id="activate-form" class="borne-activate" autocomplete="off" hidden>
+          <label class="borne-label" for="activate-input">Code d’activation</label>
+          <p class="borne-activate-help">Un membre du personnel génère ce code dans <b>Espace personnel → Postes de borne → Code d’activation</b>, sur son ordinateur ou son téléphone.</p>
+          <input id="activate-input" class="borne-activate-input" type="text" inputmode="numeric" maxlength="12" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="0000 0000" aria-describedby="activate-message">
+          <div class="borne-keypad" role="group" aria-label="Pavé numérique">${[1,2,3,4,5,6,7,8,9].map(n=>`<button type="button" data-key="${n}">${n}</button>`).join("")}<button type="button" data-key="back" aria-label="Effacer">⌫</button><button type="button" data-key="0">0</button><button type="submit" class="borne-keypad-ok" aria-label="Activer">${icon("check")}</button></div>
+          <p id="activate-message" class="borne-activate-message" role="status" aria-live="polite"></p>
+        </form>
         <form id="entry-form" autocomplete="off" hidden>
           <label class="borne-label" for="entry-input" id="entry-label">Carte CDI, nom ou prénom</label>
           <div class="borne-scan">${icon("search")}<input id="entry-input" type="text" autofocus maxlength="60" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Ex. Lina, Martin ou Lina 2nde 3" required></div>
@@ -94,6 +101,30 @@ function kiosk() {
   }
   const form=$("#entry-form"), input=$("#entry-input"), two=$("#two-hours"), message=$("#entry-message");
   const results=$("#name-results");
+  // Activation par code : saisie au clavier, à la douchette ou au pavé tactile (borne sans clavier).
+  const activation=$("#activate-form"), activationInput=$("#activate-input"), activationMessage=$("#activate-message");
+  const formatCode=(value)=>{ const digits=value.replace(/\D/g,"").slice(0,8); return digits.length>4?digits.slice(0,4)+" "+digits.slice(4):digits; };
+  activation.addEventListener("click",event=>{
+    const key=event.target.closest("[data-key]")?.dataset.key;
+    if(!key) return;
+    activationInput.value=formatCode(key==="back" ? activationInput.value.replace(/\D/g,"").slice(0,-1) : activationInput.value+key);
+    activationMessage.textContent=""; activationMessage.dataset.tone="";
+  });
+  activation.addEventListener("submit",async event=>{
+    event.preventDefault();
+    const submit=$(".borne-keypad-ok",activation);
+    if(submit.disabled) return;
+    submit.disabled=true;
+    activationMessage.dataset.tone=""; activationMessage.textContent="Vérification du code…";
+    try {
+      await api("/borne/activation","POST",{code:activationInput.value});
+      activationMessage.dataset.tone="success"; activationMessage.textContent="Poste activé.";
+      await refresh();
+    } catch(error) {
+      activationMessage.dataset.tone="error"; activationMessage.textContent=error.message;
+      activationInput.value="";
+    } finally { submit.disabled=false; }
+  });
   // Début d’un code de carte (y compris tapé par une douchette en QWERTY sur un poste AZERTY).
   const isCode=(value)=>/^\s*(\]c0)?cdi/i.test(value) || Boolean(cardCode(value));
   let nameSearchEnabled=true, searchTimer, searchVersion=0, clearTimer, rows=[];
@@ -273,6 +304,8 @@ function kiosk() {
       if(isClosed && $("#borne-idle").hidden) { renderIdle(); $("#borne-idle").hidden=false; clearTimeout(idleTimer); }
       if(wasClosed && !isClosed) { $("#borne-idle").hidden=true; armIdle(); }
       form.hidden=!settings.activated;
+      activation.hidden=Boolean(settings.activated);
+      if(settings.activated) activation.reset();
       closed=!settings.open;
       $("#second-hour").hidden=!settings.open || !settings.second_hour;
       if(nameSearchEnabled!==Boolean(settings.name_search)) {
@@ -297,6 +330,7 @@ function kiosk() {
     } catch {
       form.hidden=true;
       form.reset();
+      activation.hidden=true;
       $("#kiosk-state").textContent="La borne est momentanément indisponible.";
     } finally {refreshing=false;}
   }
@@ -1019,6 +1053,35 @@ function dialogForm(title, fields, submitText, save, options = {}) {
   options.ready?.(form);
   dialog.showModal();
 }
+// Code d’activation affiché en grand avec le temps restant ; il ne pourra plus être réaffiché ensuite.
+function showDeviceCode(result) {
+  const dialog = $("#dialog");
+  const code = result.code.slice(0,4) + " " + result.code.slice(4);
+  setTimeout(() => {
+    dialog.classList.remove("dialog-wide");
+    dialog.innerHTML = `<div class="dialog-inner"><div class="dialog-header"><h2 id="dialog-title">Code d’activation</h2>
+      <button class="dialog-close" type="button" data-close aria-label="Fermer">${icon("close")}</button></div>
+      <div class="stack"><p>Sur la borne, saisissez ce code dans le champ « Code d’activation »${result.label ? ` pour activer <strong>${e(result.label)}</strong>` : ""}.</p>
+      <p class="device-code" aria-label="Code ${e(result.code.split("").join(" "))}">${e(code)}</p>
+      <p class="subtle device-code-timer" id="device-code-timer"></p>
+      <div class="form-actions">${button("Annuler le code", "ban", "data-cancel", "danger")}${button("Terminé", "check", "data-close", "primary")}</div></div></div>`;
+    const timer = $("#device-code-timer");
+    const tick = () => {
+      const left = Math.max(0, Math.round((result.expires_at - Date.now()) / 1000));
+      timer.textContent = left ? `Valable encore ${Math.floor(left / 60)} min ${String(left % 60).padStart(2, "0")} s (jusqu’à ${time(result.expires_at)}).` : "Ce code a expiré : générez-en un nouveau.";
+      if (!left) { clearInterval(interval); $(".device-code", dialog).classList.add("is-expired"); }
+    };
+    const interval = setInterval(tick, 1000);
+    tick();
+    dialog.addEventListener("close", () => clearInterval(interval), { once:true });
+    for (const node of $$("[data-close]", dialog)) node.addEventListener("click", () => { dialog.close(); render(); });
+    $("[data-cancel]", dialog).addEventListener("click", async () => {
+      try { await gestion("borne/code", "DELETE"); dialog.close(); toast("Code d’activation annulé."); }
+      catch (error) { toast(error.message, "error"); }
+    });
+    dialog.showModal();
+  });
+}
 function confirmDialog(title, description, action, save, success, refresh = render, danger = true) {
   dialogForm(title, `<p>${e(description)}</p>`, action, save, { danger, success, refresh });
 }
@@ -1178,6 +1241,13 @@ function actionHandler(event) {
       await api("/auth/logout","POST");
       location.assign(urlFor("/borne"));
     },{success:"Poste activé.",refresh:()=>{}});
+  }
+  if (action==="device-code" && can("borne")) {
+    dialogForm("Code d’activation",`<p>Générez un code à saisir sur la borne : elle s’active sans que vous ayez à vous y connecter. Le code est valable <strong>10 minutes</strong> et ne sert qu’une fois.</p>
+      <label class="field"><span>Nom du poste <small>facultatif</small></span><input name="label" maxlength="60" placeholder="Ex. Borne accueil du CDI" autocomplete="off"></label>`,"Générer le code",async(form)=>{
+      showDeviceCode(await gestion("borne/code","POST",{label:form.elements.label.value}));
+      return "Code d’activation généré.";
+    },{refresh:()=>{}});
   }
   if (action==="revoke-devices" && can("borne")) confirmDialog("Révoquer les activations","Les postes concernés devront être réactivés.","Révoquer",()=>gestion("borne/activation","DELETE"),"Activations révoquées.");
   if (action === "student-new" || (action === "student-edit" && record)) studentDialog(record);

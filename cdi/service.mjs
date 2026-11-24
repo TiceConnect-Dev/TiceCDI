@@ -4,7 +4,7 @@ import { audit, auditRows } from "./audit.mjs";
 import { agentSummary, consumeSecondFactor, securityApi } from "./security.mjs";
 import { connectionApi, connectionSettings, ssoApi, ssoPublic } from "./connection.mjs";
 import { checkDisplay, displaySettings, kioskToday } from "./display.mjs";
-import { cardCode, deviceExpiry, deviceSettings, devicesApi, kioskLabel, rankMatches, searchTokens, touchDevice } from "./devices.mjs";
+import { activationCode, cardCode, codeDigest, deviceExpiry, deviceSettings, devicesApi, kioskLabel, rankMatches, searchTokens, touchDevice } from "./devices.mjs";
 import { exportBackup, inspectBackup, maxBackupBytes, restoreBackup } from "./backup.mjs";
 import { occupancy, seatsSql } from "./capacity.mjs";
 import { changeCall, changeGroup, finishSession, groups, members, roster, sessionDetail, sessionsList, startSession } from "./school.mjs";
@@ -416,6 +416,25 @@ async function dispatch(request, env, options) {
       const [settings,state,gauge,display,todayPlan]=await Promise.all([kioskSettings(m),m.one(closure.sql,...closure.params),occupancy(m,clock),displaySettings(m),kioskToday(m,clock)]);
       return json({...settings,...gauge,activated:true,open:!state.reason,reason:state.reason,name_search:(await deviceSettings(m)).name_search,display,today:todayPlan},200,
         renewed ? {"Set-Cookie":cookie(request,token,Math.floor((renewed-clock)/1000),"cdi_device")} : {});
+    }
+    // Activation par code à usage unique : le personnel génère le code dans « Postes de borne », sans se connecter sur la borne.
+    if (method==="POST" && path==="/api/borne/activation") {
+      await throttle(m,"kiosk-code:"+client,10,10);
+      await throttle(m,"kiosk-code",60,10);
+      const code=activationCode((await payload(request)).code);
+      if (!code) fail(400,"Saisissez le code d’activation à 8 chiffres.");
+      const used=await m.one(`DELETE FROM kiosk_codes WHERE code=? AND expires_at>? AND account_id IN (SELECT id FROM accounts
+        WHERE admin=1 OR EXISTS(SELECT 1 FROM json_each(permissions) WHERE value='borne')) RETURNING account_id,label`,await codeDigest(code),clock);
+      if (!used) fail(400,"Code d’activation incorrect ou expiré. Demandez un nouveau code au personnel du CDI.");
+      const owner=await m.one("SELECT name FROM accounts WHERE id=?",used.account_id);
+      const fresh=random(32);
+      const expires=deviceExpiry(await deviceSettings(m),clock);
+      await m.batch([
+        m.stmt("INSERT INTO kiosk_devices (token,account_id,expires_at,label,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?,?)",
+          await digest(fresh),used.account_id,expires,used.label,clock,clock,agentSummary(request.headers.get("user-agent") ?? ""),String(client).slice(0,64)),
+        audit(m,{name:owner?.name ?? "Personnel"},"confidentialite","Activation d’un poste par code",used.label||"Borne",null,null),
+      ]);
+      return json({ok:true},200,{"Set-Cookie":cookie(request,fresh,Math.floor((expires-clock)/1000),"cdi_device")});
     }
     if (!device) fail(403,"Ce poste doit être activé par le personnel.");
     if (method==="POST" && path==="/api/borne/recherche") {

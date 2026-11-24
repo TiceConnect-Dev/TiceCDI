@@ -656,6 +656,29 @@ button.cal-slot{cursor:grab}button.cal-slot:active{cursor:grabbing}button.cal-sl
 .borne.borne-dark .borne-confirm-box p{color:#c4c9ef}
 .borne.borne-dark .borne-idle{background:linear-gradient(180deg,#070a24 0%,#03040f 100%)}
 .borne.borne-dark .seg-ouvert{background:#2f6b4a}.borne.borne-dark .seg-reservation{background:#8a6421}.borne.borne-dark .seg-fermeture{background:#8a2f37}
+/* Activation de la borne par code (v1.17) : pavé tactile pour les bornes sans clavier. */
+.borne-activate{display:grid;gap:12px;justify-items:center;text-align:center;margin-top:4px}
+.borne-activate-help{margin:0;max-width:44ch;color:var(--muted);font-size:clamp(.95rem,1.2vw,1.05rem)}
+.borne-activate-input{width:min(100%,360px);min-height:72px;padding:8px 16px;border:2px solid #cfd3e6;border-radius:14px;background:var(--white,#fff);color:var(--ink);
+  font:700 clamp(1.8rem,3vw,2.3rem)/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.14em;text-align:center}
+.borne-activate-input::placeholder{color:#c3c7dc}
+.borne-activate-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 5px #5571e830}
+.borne-keypad{display:grid;grid-template-columns:repeat(3,minmax(72px,96px));gap:10px}
+.borne-keypad button{min-height:64px;border:1px solid var(--line);border-radius:12px;background:var(--canvas);color:var(--ink);font-family:inherit;font-size:1.6rem;font-weight:700;line-height:1;cursor:pointer;touch-action:manipulation}
+.borne-keypad button:active{transform:scale(.96)}
+.borne-keypad .borne-keypad-ok{background:var(--blue);border-color:var(--blue);color:#fff}
+.borne-keypad .borne-keypad-ok .icon{width:30px;height:30px}
+.borne-keypad button:disabled{opacity:.5;cursor:wait}
+.borne-activate-message{margin:0;min-height:1.5em;font-weight:600;color:var(--muted)}
+.borne-activate-message[data-tone=error]{color:#b3261e}
+.borne-activate-message[data-tone=success]{color:#1d7a4c}
+.borne.borne-dark .borne-activate-input{border-color:#353c66}
+.borne.borne-dark .borne-activate-message[data-tone=error]{color:#ff9ba2}
+.borne.borne-dark .borne-activate-message[data-tone=success]{color:#7ee0ad}
+.device-code{margin:8px 0 0;text-align:center;font:700 clamp(2.2rem,8vw,3.2rem)/1.1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.12em;
+  padding:18px 12px;border:1px dashed var(--line);border-radius:12px;background:var(--canvas);color:var(--ink)}
+.device-code.is-expired{opacity:.4;text-decoration:line-through}
+.device-code-timer{text-align:center;margin:0}
 @media (prefers-reduced-motion:reduce){.borne-card.is-scanning,.borne-idle-hint,.borne-confirm-icon,.borne-news.is-new{animation:none}}
 /* Réglages de l’affichage de la borne (gestion). */
 .display-panel{margin-top:16px}

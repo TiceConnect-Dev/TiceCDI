@@ -10,7 +10,7 @@ on:
       version:
         description: Version à publier au format vX.Y.Z
         required: true
-        default: v1.16.0
+        default: v1.17.0
 
 permissions:
   contents: write
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       IMAGE: ghcr.io/ticeconnect-dev/ticecdi
-      VERSION: ${{ inputs.version || 'v1.16.0' }}
+      VERSION: ${{ inputs.version || 'v1.17.0' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

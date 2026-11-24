@@ -28,13 +28,46 @@ export async function touchDevice(m, device, clock) {
   return renew ? next : null;
 }
 
+// Activation par code : 8 chiffres, valable 10 minutes, à usage unique (un seul code en cours par compte).
+export const CODE_TTL = 10 * 60_000;
+const sha256 = async (value) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))]
+  .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export const codeDigest = (code) => sha256("kiosk-code:" + code);
+export function newActivationCode() {
+  const value = new Uint32Array(1);
+  do crypto.getRandomValues(value); while (value[0] >= 4_200_000_000);
+  return String(value[0] % 100_000_000).padStart(8, "0");
+}
+// Saisie de la borne : espaces ignorés, chiffres tapés en AZERTY sans majuscule acceptés (« - » vaut 6,
+// sauf s'il sert de séparateur : « 1234-5678 »).
+export function activationCode(value) {
+  const text = String(value ?? "").normalize("NFC").replace(/\s+/g, "");
+  const digits = (raw) => [...raw].map((char) => azertyDigits[char] ?? char).join("");
+  return [digits(text), digits(text.replace(/-/g, ""))].find((code) => /^[0-9]{8}$/.test(code)) ?? "";
+}
+
 const columns = "substr(k.token,1,16) AS id,k.label,k.created_at,k.last_seen,k.expires_at,k.agent,k.address,a.name AS activated_by,k.account_id";
 
 // Routes /api/gestion/borne/postes ; retourne null si la route n'est pas concernée.
 export async function devicesApi(ctx) {
   const { m, request, me, path, method, clock, json, fail, payload, audit, currentDevice } = ctx;
-  if (!path.startsWith("/api/gestion/borne/postes")) return null;
+  if (!path.startsWith("/api/gestion/borne/postes") && path !== "/api/gestion/borne/code") return null;
   if (!me.admin && !me.rights.includes("borne")) fail(403, "Votre compte ne dispose pas de cet accès.");
+  if (path === "/api/gestion/borne/code" && method === "POST") {
+    const data = request.headers.get("content-type")?.startsWith("application/json") ? await payload(request) : {};
+    const label = String(data.label ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const code = newActivationCode(), expires = clock + CODE_TTL;
+    await m.batch([
+      m.stmt("DELETE FROM kiosk_codes WHERE expires_at<=? OR account_id=?", clock, me.id),
+      m.stmt("INSERT INTO kiosk_codes (code,account_id,label,created_at,expires_at) VALUES (?,?,?,?,?)", await codeDigest(code), me.id, label, clock, expires),
+      audit(m, me, "confidentialite", "Création d’un code d’activation de borne", label || "Borne", null, null),
+    ]);
+    return json({ code, label, expires_at:expires });
+  }
+  if (path === "/api/gestion/borne/code" && method === "DELETE") {
+    await m.run("DELETE FROM kiosk_codes WHERE account_id=?", me.id);
+    return json({ ok:true });
+  }
   if (path === "/api/gestion/borne/postes" && method === "GET") {
     const rows = await m.list(`SELECT ${columns} FROM kiosk_devices k JOIN accounts a ON a.id=k.account_id
       WHERE k.expires_at>? ${me.admin ? "" : "AND k.account_id=?"} ORDER BY k.last_seen DESC,k.created_at DESC`, clock, ...(me.admin ? [] : [me.id]));

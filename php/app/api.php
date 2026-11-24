@@ -145,6 +145,36 @@ function publicResource(Store $db, string $path, string $method, int $clock, str
         return $settings + occupancy($db, $clock) + ['activated' => true, 'reason' => $reason, 'name_search' => deviceSettings($db)['name_search'],
             'display' => displaySettings($db), 'today' => kioskToday($db, $clock)];
     }
+    // Activation par code à usage unique : le personnel génère le code dans « Postes de borne », sans se connecter sur la borne.
+    if ($method === 'POST' && $path === '/api/borne/activation') {
+        $client = substr(clientAddress(), 0, 64);
+        throttle($db, 'kiosk-code:' . $client, 10, 10);
+        throttle($db, 'kiosk-code', 60, 10);
+        $code = activationCode(requestData()['code'] ?? null);
+        if ($code === '') {
+            fail(400, 'Saisissez le code d’activation à 8 chiffres.');
+        }
+        $fresh = bin2hex(random_bytes(32));
+        $expires = deviceExpiry(deviceSettings($db), $clock);
+        $owner = $db->atomic(function () use ($db, $code, $clock, $fresh, $expires, $client): ?array {
+            $used = $db->one("DELETE FROM kiosk_codes WHERE code=? AND expires_at>? AND account_id IN (SELECT id FROM accounts
+                WHERE admin=1 OR EXISTS(SELECT 1 FROM json_each(permissions) WHERE value='borne')) RETURNING account_id,label", codeDigest($code), $clock);
+            if (!$used) {
+                return null;
+            }
+            $db->run('INSERT INTO kiosk_devices (token,account_id,expires_at,label,created_at,last_seen,agent,address) VALUES (?,?,?,?,?,?,?,?)',
+                hash('sha256', $fresh), $used['account_id'], $expires, $used['label'], $clock, $clock,
+                agentSummary((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), $client);
+            $account = $db->one('SELECT name FROM accounts WHERE id=?', $used['account_id']);
+            audit($db, ['name' => $account['name'] ?? 'Personnel'], 'confidentialite', 'Activation d’un poste par code', $used['label'] ?: 'Borne', null, null);
+            return $used;
+        });
+        if (!$owner) {
+            fail(400, 'Code d’activation incorrect ou expiré. Demandez un nouveau code au personnel du CDI.');
+        }
+        cookie($fresh, intdiv($expires, 1000), 'cdi_device');
+        return ['ok' => true];
+    }
     if (!$device) {
         fail(403, 'Ce poste doit être activé par le personnel.');
     }

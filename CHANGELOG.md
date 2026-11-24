@@ -1,5 +1,11 @@
 # Journal des versions
 
+## v1.17.0 · Activer une borne avec un code
+
+- **Code d’activation** (page **Postes de borne**, droit « Borne ») : le personnel génère un code à 8 chiffres depuis son ordinateur ou son téléphone et le saisit sur la borne. Idéal pour une borne en mode kiosque, sans accès au navigateur : plus besoin de s’y connecter.
+- Sur la borne non activée : champ **Code d’activation** avec pavé numérique tactile ; le clavier et la douchette fonctionnent aussi (chiffres AZERTY sans majuscule acceptés).
+- Code valable **10 minutes**, à **usage unique**, un seul code en cours par compte, annulable. Seule son empreinte est conservée ; tentatives limitées (10 par poste et 60 au total par tranche de 10 minutes). Activation et création du code inscrites au journal (migration `0015_kiosk_codes.sql`).
+
 ## v1.16.0 · Réinitialiser les données
 
 - Nouvelle page **Administration → Réinitialiser** (administrateurs) : vider les statistiques, les fiches d’appel, les passages des élèves, les alertes et le journal, **en totalité ou sur une période**. Le nombre d’éléments concernés s’affiche avant validation ; confirmation en tapant `VIDER` ; lien vers la sauvegarde conseillée.

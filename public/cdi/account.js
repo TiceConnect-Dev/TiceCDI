@@ -227,8 +227,9 @@ export async function renderDevices(target, { section, toast, me, confirmDialog 
   const expiry = (row) => settings.renew && settings.duration !== "annee"
     ? `Renouvelée à l’usage<small>sinon le ${stamp(row.expires_at)}</small>` : stamp(row.expires_at);
   target.innerHTML = section("Postes de borne", "Activez un navigateur dédié au pointage et gérez les postes déjà activés.",
-    button("Activer ce poste", "scan", 'data-action="activate-device"', "primary")) + `
+    button("Code d’activation", "lock", 'data-action="device-code"') + button("Activer ce poste", "scan", 'data-action="activate-device"', "primary")) + `
     <section class="panel panel-body stack devices-intro">
+      <p><strong>Borne sans accès au navigateur ?</strong> Générez un <strong>code d’activation</strong> (8 chiffres, valable 10 minutes, à usage unique) et saisissez-le sur l’écran de la borne non activée.</p>
       <p>Ce navigateur ${rows.some((row) => row.current) ? "<strong>est déjà activé</strong> comme borne." : "n’est pas activé comme borne."}
         Activation valable <strong>${e(durationNames[settings.duration])}</strong>${settings.renew && settings.duration !== "annee" ? ", <strong>renouvelée automatiquement</strong> tant que la borne est utilisée" : ""}.</p>
       ${me.admin ? `<form id="device-settings" class="device-settings">
