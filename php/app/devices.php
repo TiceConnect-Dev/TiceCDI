@@ -38,12 +38,56 @@ function touchDevice(Store $db, array $device, int $clock): ?int
     return $renew ? $next : null;
 }
 
+/** Activation par code : 8 chiffres, valable 10 minutes, à usage unique. Même règle que cdi/devices.mjs. */
+const KIOSK_CODE_TTL = 600_000;
+const AZERTY_DIGITS = ['&' => '1', 'é' => '2', 'É' => '2', '"' => '3', "'" => '4', '(' => '5',
+    '-' => '6', '§' => '6', 'è' => '7', 'È' => '7', '_' => '8', '!' => '8', 'ç' => '9', 'Ç' => '9', 'à' => '0', 'À' => '0'];
+
+function codeDigest(string $code): string
+{
+    return hash('sha256', 'kiosk-code:' . $code);
+}
+
+function newActivationCode(): string
+{
+    return str_pad((string) random_int(0, 99_999_999), 8, '0', STR_PAD_LEFT);
+}
+
+/** Saisie de la borne : espaces ignorés, chiffres AZERTY acceptés (« - » vaut 6, sauf comme séparateur « 1234-5678 »). */
+function activationCode(mixed $value): string
+{
+    if (!is_string($value)) {
+        return '';
+    }
+    $text = preg_replace('/\s+/u', '', mb_substr($value, 0, 40, 'UTF-8')) ?? '';
+    foreach ([strtr($text, AZERTY_DIGITS), strtr(str_replace('-', '', $text), AZERTY_DIGITS)] as $code) {
+        if (preg_match('/^[0-9]{8}$/D', $code)) {
+            return $code;
+        }
+    }
+    return '';
+}
+
 function devicesResource(Store $db, string $path, string $method, array $me, int $clock): ?array
 {
-    if (!str_starts_with($path, '/api/gestion/borne/postes')) {
+    if (!str_starts_with($path, '/api/gestion/borne/postes') && $path !== '/api/gestion/borne/code') {
         return null;
     }
     need($me, 'borne');
+    if ($path === '/api/gestion/borne/code' && $method === 'POST') {
+        $data = ($_SERVER['CONTENT_TYPE'] ?? '') !== '' ? requestData() : [];
+        $label = mb_substr(clean($data['label'] ?? null), 0, 60, 'UTF-8');
+        $code = newActivationCode();
+        $expires = $clock + KIOSK_CODE_TTL;
+        $db->run('DELETE FROM kiosk_codes WHERE expires_at<=? OR account_id=?', $clock, $me['id']);
+        $db->run('INSERT INTO kiosk_codes (code,account_id,label,created_at,expires_at) VALUES (?,?,?,?,?)', codeDigest($code), $me['id'], $label, $clock, $expires);
+        audit($db, $me, 'confidentialite', 'Création d’un code d’activation de borne', $label ?: 'Borne', null, null);
+        return ['code' => $code, 'label' => $label, 'expires_at' => $expires];
+    }
+    if ($path === '/api/gestion/borne/code' && $method === 'DELETE') {
+        $db->run('DELETE FROM kiosk_codes WHERE account_id=?', $me['id']);
+        return ['ok' => true];
+    }
     $token = $_COOKIE['cdi_device'] ?? '';
     $current = is_string($token) && preg_match('/^[a-f0-9]{64}$/D', $token) ? substr(hash('sha256', $token), 0, 16) : '';
     if ($path === '/api/gestion/borne/postes' && $method === 'GET') {

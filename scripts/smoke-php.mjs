@@ -489,6 +489,45 @@ async function connectionSettingsTest(host,idp) {
   if(planning.occupancy) assert.ok("occupied" in planning.occupancy && "places" in planning.occupancy);
   db.close();
 }
+// Activation par code : code à 8 chiffres généré par le personnel, saisi sur la borne sans connexion, usage unique, 10 minutes.
+async function kioskCodeTest(host) {
+  const db=new DatabaseSync(join(host.data,"cdi.sqlite"));
+  const viewer=await host.login("vie",password);
+  await host.post("/gestion/borne/code",{},viewer,403);
+  await host.post("/gestion/borne/code",{},"",401);
+  const kiosk=async(code,expected)=>{
+    const response=await fetch(host.route("/api/borne/activation"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
+    const payload=await response.json();
+    assert.equal(response.status,expected,host.kind+" activation "+code+" "+JSON.stringify(payload));
+    return response.headers.getSetCookie().map(part=>part.split(";")[0]).find(part=>part.startsWith("cdi_device="));
+  };
+  const first=await host.post("/gestion/borne/code",{label:"Borne hall "+host.kind});
+  assert.match(first.code,/^[0-9]{8}$/);
+  assert.ok(Math.abs(first.expires_at-Date.now()-600000)<5000);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM kiosk_codes WHERE code=?").get(first.code).n,0,"le code n’est pas stocké en clair");
+  await kiosk("12",400);
+  const device=await kiosk(first.code.slice(0,4)+" "+first.code.slice(4),200);
+  assert.ok(device);
+  assert.equal((await host.get("/borne/reglages",device)).activated,true);
+  await kiosk(first.code,400);
+  const row=(await host.get("/gestion/borne/postes")).rows.find(item=>item.label==="Borne hall "+host.kind);
+  assert.ok(row && row.activated_by==="Administration test");
+  assert.ok(db.prepare("SELECT count(*) AS n FROM audit_log WHERE action='Activation d’un poste par code'").get().n>=1);
+  // Un nouveau code remplace le précédent ; l’annulation le rend inutilisable ; un code expiré est refusé.
+  const old=await host.post("/gestion/borne/code",{});
+  const next=await host.post("/gestion/borne/code",{});
+  await kiosk(old.code===next.code?"00000000":old.code,400);
+  await host.call("/gestion/borne/code",{method:"DELETE"});
+  await kiosk(next.code,400);
+  const late=await host.post("/gestion/borne/code",{});
+  db.prepare("UPDATE kiosk_codes SET expires_at=?").run(Date.now()-1000);
+  await kiosk(late.code,400);
+  // Douchette ou clavier AZERTY sans majuscule : « &é"'(-è_çà » valent 1234567890 ; « - » peut aussi séparer.
+  const typed=await host.post("/gestion/borne/code",{});
+  const azerty={"1":"&","2":"é","3":"\"","4":"'","5":"(","6":"-","7":"è","8":"_","9":"ç","0":"à"};
+  assert.ok(await kiosk([...typed.code].map(char=>azerty[char]).join(""),200));
+  db.close();
+}
 function weekMonday() {
   const now=new Date(); const day=(now.getUTCDay()+6)%7; now.setUTCDate(now.getUTCDate()-day);
   return now.toISOString().slice(0,10);
@@ -729,6 +768,7 @@ try {
   await security(node); await security(phpHost);
   await accountSecurity(node); await accountSecurity(phpHost);
   await devicesTest(node); await devicesTest(phpHost);
+  await kioskCodeTest(node); await kioskCodeTest(phpHost);
   await viewRightsTest(node); await viewRightsTest(phpHost);
   const idp=await identityProvider();
   try { await connectionSettingsTest(node,idp); await connectionSettingsTest(phpHost,idp); } finally { idp.close(); }
@@ -741,7 +781,7 @@ try {
   await recoveryHost.get("/gestion/dossier/"+n.id, recoveryHost.admin,404);
   assert.equal((await recoveryHost.get(n.stats)).visits,6);
   await verifyLayout([node,phpHost]);
-  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, recherche par nom, suppression de classe, droits de consultation et d’export.");
+  console.log("OK · Node et PHP HTTP, migration, activation, rôles, échéances, purge et totaux, restauration, notices, licence, logos, en-têtes de sécurité, double authentification, sessions, connexion ENT, règles de connexion, postes de borne, activation par code, recherche par nom, suppression de classe, droits de consultation et d’export.");
 } catch(error){
   console.error(output);
   throw error;
